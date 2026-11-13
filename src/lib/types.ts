@@ -1,6 +1,19 @@
 export type ApplicationStatus = "pending" | "accepted" | "rejected";
 export type RefundStatus = "not_applicable" | "pending" | "refunded";
-export type EventKind = "submitted" | "accepted" | "rejected" | "refund_due" | "no_refund" | "refunded";
+export type EventKind =
+  | "submitted"
+  | "accepted"
+  | "rejected"
+  | "refund_due"
+  | "no_refund"
+  | "refunded"
+  | "kyc_verified"
+  | "kyc_problem"
+  | "kyc_resubmit"
+  | "kyc_resubmitted";
+
+export type KycStatus = "pending" | "verified" | "problem" | "resubmit";
+export type KycDocKey = "identity" | "identity_back" | "address" | "student";
 
 export type SiteSettings = {
   lender_name: string;
@@ -49,6 +62,12 @@ export type Application = {
   refunded_at: string | null;
   lender_name: string | null;
   lender_reg_no: string | null;
+  contact_email: string | null;
+  kyc_status: KycStatus;
+  /** Reviewer's note: the problem found, or what to fix when re-uploading (the applicant sees it). */
+  kyc_note: string;
+  kyc_requested_docs: KycDocKey[];
+  kyc_reviewed_at: string | null;
 };
 
 export type ApplicationEvent = {
@@ -91,7 +110,7 @@ export type DashboardStats = {
 };
 
 export const APPLICATION_COLUMNS =
-  "id,ref_code,user_id,full_name,phone,category,requested_amount,transaction_id,proof_path,fee,payee_name,upi_id,status,payment_verified,kyc_verified,admin_note,reviewed_at,created_at,refund_upi_id,refund_status,refund_reference,refunded_at,lender_name,lender_reg_no";
+  "id,ref_code,user_id,full_name,phone,category,requested_amount,transaction_id,proof_path,fee,payee_name,upi_id,status,payment_verified,kyc_verified,admin_note,reviewed_at,created_at,refund_upi_id,refund_status,refund_reference,refunded_at,lender_name,lender_reg_no,contact_email,kyc_status,kyc_note,kyc_requested_docs,kyc_reviewed_at";
 
 export const FEE = 299;
 export const CATEGORIES = ["Student", "Driver", "Employed", "Self-employed", "Unemployed"] as const;
@@ -144,7 +163,22 @@ export type LoanDocument = { id: string; kind: LoanDocumentKind; title: string; 
 
 export type BorrowerAccess = { application_id: string; issued_at: string; last_login_at: string | null; locked_until: string | null };
 
+/** One loan in the borrower's "My loans" list. */
+export type BorrowerLoanSummary = {
+  application_id: string;
+  ref_code: string;
+  requested_amount: number;
+  reviewed_at: string | null;
+  lender_name: string | null;
+  loan: Pick<Loan, "loan_account_no" | "sanctioned_amount" | "interest_rate" | "tenure_months" | "emi_amount" | "first_emi_date" | "status"> | null;
+  payments: LoanPayment[];
+};
+
 export type BorrowerPortalData = {
+  /** Application id of the loan shown in detail. */
+  selected: string;
+  /** Every approved loan on this mobile number, newest first. */
+  loans: BorrowerLoanSummary[];
   application: {
     ref_code: string;
     full_name: string;
@@ -167,3 +201,22 @@ export type BorrowerPortalData = {
   > | null;
   events: { kind: string; note: string; created_at: string }[];
 };
+
+/** One loan payment row as the admin console loads it (all loans at once). */
+export type AdminLoanPayment = LoanPayment & { application_id: string };
+
+/** Admin activity log entry (admin_activity RPC). */
+export type ActivityEntry = {
+  id: number;
+  application_id: string;
+  kind: string;
+  note: string;
+  created_at: string;
+  full_name: string;
+  ref_code: string | null;
+  actor: "admin" | "applicant" | "system";
+  actor_label: string;
+};
+
+/** Admin team member (admin_list_admins RPC). */
+export type AdminMember = { user_id: string; email: string; created_at: string; last_sign_in_at: string | null; is_me: boolean };

@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, Eye, EyeOff, FileLock2, FlaskConical, Loader2, L
 import { supabase } from "@/lib/supabase";
 import { DEMO_ADMIN_KEY } from "@/lib/use-session";
 import { errorText } from "@/lib/format";
-import { isPhoneAuthEmail, loginIdentifierToEmail } from "@/lib/phone-auth";
+import { EMAIL_RE, isPhoneAuthEmail } from "@/lib/phone-auth";
 import { Logo, Notice } from "../ui";
 
 
@@ -47,13 +47,11 @@ export function AdminLogin() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setMsg(null);
-    const authEmail = loginIdentifierToEmail(email);
-    if (!authEmail) return setMsg({ tone: "bad", text: "Enter your mobile number or email." });
+    const authEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(authEmail) || isPhoneAuthEmail(authEmail)) return setMsg({ tone: "bad", text: "Enter your admin email address." });
 
     if (mode === "forgot") {
       if (demo) return setMsg({ tone: "ok", text: "Demo mode: password reset emails are sent once Supabase is connected." });
-      if (isPhoneAuthEmail(authEmail))
-        return setMsg({ tone: "ok", text: "Accounts that use a mobile number are reset by the site owner in Supabase. See “Reset a password” in the README." });
       setBusy(true);
       const { error } = await supabase!.auth.resetPasswordForEmail(authEmail, { redirectTo: `${window.location.origin}/account/reset` });
       setBusy(false);
@@ -82,7 +80,7 @@ export function AdminLogin() {
       router.replace("/admin");
     } catch (err) {
       const text = errorText(err);
-      setMsg({ tone: "bad", text: /invalid login credentials/i.test(text) ? "Incorrect login or password." : text });
+      setMsg({ tone: "bad", text: /invalid login credentials/i.test(text) ? "Incorrect email or password." : text });
       setBusy(false);
     }
   }
@@ -167,7 +165,7 @@ export function AdminLogin() {
               <div className="mt-6 flex items-start gap-3 rounded-xl border border-gold/35 bg-gold-soft px-4 py-3 text-sm text-gold-ink">
                 <FlaskConical size={17} className="mt-0.5 shrink-0" />
                 <p>
-                  <strong>Demo mode.</strong> Supabase isn&rsquo;t connected, so any mobile number or email with any password opens the demo console.
+                  <strong>Demo mode.</strong> Supabase isn&rsquo;t connected, so any email with any password opens the demo console.
                 </p>
               </div>
             )}
@@ -175,18 +173,18 @@ export function AdminLogin() {
             <form onSubmit={submit} noValidate className="mt-7 space-y-4">
               <div>
                 <label className="label" htmlFor="admin-email">
-                  Mobile number or email
+                  Email
                 </label>
                 <div className="relative">
                   <UserRound size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
                   <input
                     id="admin-email"
-                    type="text"
+                    type="email"
                     autoComplete="username"
                     className="!pl-10"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="98765 43210 or admin@company.com"
+                    placeholder="admin@company.com"
                     disabled={checking}
                   />
                 </div>

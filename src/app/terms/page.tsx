@@ -157,7 +157,7 @@ export default function TermsPage() {
           </div>
 
           {/* 07 Grievance */}
-          <div id="grievance" className="mt-14 grid scroll-mt-28 items-start gap-8 lg:grid-cols-[1.1fr_.9fr]">
+          <div id="grievance" className="mt-14 grid scroll-mt-36 items-start gap-8 lg:grid-cols-[1.1fr_.9fr]">
             <div>
               <SectionHead eyebrow="07 · Grievance redressal" title="Something wrong?" accent="We'll fix it." />
               <p className="mt-5 max-w-lg text-[1.02rem] leading-relaxed text-ink-2">
@@ -186,10 +186,10 @@ export default function TermsPage() {
                 })}
               </ol>
             </div>
-            <div className="space-y-4 lg:sticky lg:top-28">
+            <div className="space-y-4 lg:sticky lg:top-32">
               <DisclosureCard />
               <div className="card p-6">
-                <p className="text-sm leading-relaxed text-muted">Ready to go? It takes about ten minutes, and you can track every step afterwards.</p>
+                <p className="text-sm leading-relaxed text-muted">Ready to go? It takes about five minutes, and you can track every step afterwards.</p>
                 <Link href="/apply" className="btn btn-gold btn-lg mt-4 w-full">
                   Start your application <ArrowRight size={17} />
                 </Link>

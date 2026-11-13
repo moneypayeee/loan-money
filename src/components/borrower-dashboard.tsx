@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   ArrowRight,
   BadgeIndianRupee,
   Building2,
@@ -33,7 +34,7 @@ import { borrowerChangePassword, borrowerDocumentUrl, borrowerLogout, borrowerPo
 import { dateOnly, dateTime, rupees } from "@/lib/format";
 import { formatPhone } from "@/lib/phone-auth";
 import { progress as getProgress, schedule, totals, withStatus, type ScheduleRowWithStatus } from "@/lib/loan-math";
-import { DOCUMENT_KINDS, REPAYMENT_METHODS, type BorrowerPortalData, type LoanStatus } from "@/lib/types";
+import { DOCUMENT_KINDS, REPAYMENT_METHODS, type BorrowerLoanSummary, type BorrowerPortalData, type LoanStatus } from "@/lib/types";
 import { Notice, Spinner } from "./ui";
 
 type Tab = "overview" | "repayments" | "documents" | "details" | "account";
@@ -61,21 +62,55 @@ export function BorrowerDashboard() {
   const [data, setData] = useState<BorrowerPortalData | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("overview");
+  // With more than one loan, the borrower first sees a list of them ("list"), then one loan's details ("loan")
+  const [view, setView] = useState<"list" | "loan">("loan");
+  const [opening, setOpening] = useState<string | null>(null);
 
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab");
     if (t && TABS.some((x) => x.id === t)) setTab(t as Tab);
+    const wanted = params.get("loan");
     let alive = true;
-    borrowerPortal().then((res) => {
+    borrowerPortal(wanted).then((res) => {
       if (!alive) return;
-      if ("data" in res) setData(res.data);
-      else if (res.error === "signed-out") router.replace("/login");
-      else setError(res.error);
+      if ("data" in res) {
+        setData(res.data);
+        setView(res.data.loans.length > 1 && !wanted ? "list" : "loan");
+      } else if (res.error === "signed-out") router.replace("/login");
+      else if (wanted && /not found/i.test(res.error)) {
+        // Stale ?loan= link: fall back to the list
+        borrowerPortal().then((r2) => ("data" in r2 ? (setData(r2.data), setView(r2.data.loans.length > 1 ? "list" : "loan")) : setError(r2.error)));
+      } else setError(res.error);
     });
     return () => {
       alive = false;
     };
   }, [router]);
+
+  async function openLoan(id: string) {
+    setOpening(id);
+    const res = await borrowerPortal(id);
+    setOpening(null);
+    if (!("data" in res)) return res.error === "signed-out" ? router.replace("/login") : setError(res.error);
+    setData(res.data);
+    setView("loan");
+    setTab("overview");
+    const u = new URL(window.location.href);
+    u.searchParams.set("loan", id);
+    u.searchParams.delete("tab");
+    window.history.replaceState(null, "", u);
+    window.scrollTo({ top: 0 });
+  }
+
+  function showAllLoans() {
+    setView("list");
+    const u = new URL(window.location.href);
+    u.searchParams.delete("loan");
+    u.searchParams.delete("tab");
+    window.history.replaceState(null, "", u);
+    window.scrollTo({ top: 0 });
+  }
 
   function go(t: Tab) {
     setTab(t);
@@ -109,6 +144,7 @@ export function BorrowerDashboard() {
       </main>
     );
   if (!data) return <Spinner label="Loading your loan…" />;
+  if (view === "list") return <LoansList data={data} opening={opening} onOpen={(id) => void openLoan(id)} onLogout={() => void logout()} />;
 
   const { application: a, loan, site } = data;
   const firstName = a.full_name.split(" ")[0];
@@ -125,7 +161,12 @@ export function BorrowerDashboard() {
         <div className="shell relative pb-8 pt-8 sm:pb-10 sm:pt-12">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <span className="eyebrow eyebrow-light">My loan</span>
+              {data.loans.length > 1 && (
+                <button type="button" onClick={showAllLoans} className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-gold hover:underline">
+                  <ArrowLeft size={15} /> All my loans ({data.loans.length})
+                </button>
+              )}
+              <span className="eyebrow eyebrow-light">{data.loans.length > 1 && loan?.loan_account_no ? `Loan ${loan.loan_account_no}` : "My loan"}</span>
               <h1 className="display mt-4 text-[2.2rem] leading-tight sm:text-5xl">
                 <span className="text-gradient">Hello,</span> <span className="serif text-champagne">{firstName}.</span>
               </h1>
@@ -168,7 +209,7 @@ export function BorrowerDashboard() {
 
       {/* ===================== Tabs ===================== */}
       <section className="theme-light min-h-[60vh]">
-        <div id="loan-tabs" className="sticky top-[68px] z-20 scroll-mt-20 border-b hairline bg-paper/90 backdrop-blur-xl sm:top-[76px]">
+        <div id="loan-tabs" className="sticky top-[96px] z-20 scroll-mt-28 border-b hairline bg-paper/90 backdrop-blur-xl sm:top-[112px]">
           <div className="shell">
             <nav className="-mb-px flex gap-1 overflow-x-auto pr-6 [mask-image:linear-gradient(90deg,#000_82%,transparent)] [scrollbar-width:none] sm:pr-0 sm:[mask-image:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Loan sections">
               {TABS.map(({ id, label, icon: Icon }) => {
@@ -756,5 +797,109 @@ function Text({ k, v }: { k: string; v: string | null | undefined }) {
       <p className="text-muted">{k}</p>
       <p className="mt-0.5 font-medium leading-relaxed text-ink">{v || "—"}</p>
     </div>
+  );
+}
+
+/* ================================================================ My loans (2 or more) */
+
+function summarise(l: BorrowerLoanSummary) {
+  const t = l.loan;
+  if (!t?.sanctioned_amount || t.interest_rate == null || !t.tenure_months || !t.first_emi_date) return null;
+  const rows = withStatus(schedule(t.sanctioned_amount, Number(t.interest_rate), t.tenure_months, t.first_emi_date), l.payments, todayIso());
+  return { rows, pg: getProgress(rows, t.sanctioned_amount), next: rows.find((r) => r.status === "due") ?? null };
+}
+
+function LoansList({ data, opening, onOpen, onLogout }: { data: BorrowerPortalData; opening: string | null; onOpen: (id: string) => void; onLogout: () => void }) {
+  const firstName = data.application.full_name.split(" ")[0];
+  const open = data.loans.filter((l) => l.loan?.status !== "closed");
+  return (
+    <main className="-mb-16">
+      <section className="relative overflow-hidden">
+        <div className="aurora pointer-events-none absolute inset-0 -top-40" aria-hidden />
+        <div className="grid-lines pointer-events-none absolute inset-0 -top-40" aria-hidden />
+        <div className="shell relative pb-8 pt-8 sm:pb-10 sm:pt-12">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <span className="eyebrow eyebrow-light">My loans</span>
+              <h1 className="display mt-4 text-[2.2rem] leading-tight sm:text-5xl">
+                <span className="text-gradient">Hello,</span> <span className="serif text-champagne">{firstName}.</span>
+              </h1>
+              <p className="mt-3 text-sm text-muted">
+                You have {data.loans.length} loans with us{open.length !== data.loans.length ? ` (${open.length} open)` : ""}. Choose one to see its EMIs and documents.
+              </p>
+            </div>
+            <button type="button" onClick={onLogout} className="btn btn-outline btn-sm">
+              <LogOut size={14} /> Log out
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="theme-light min-h-[60vh]">
+        <div className="shell grid gap-4 py-8 sm:py-10 md:grid-cols-2">
+          {data.loans.map((l) => {
+            const s = summarise(l);
+            const st = STATUS[l.loan?.status ?? "sanctioned"];
+            const busy = opening === l.application_id;
+            return (
+              <button
+                key={l.application_id}
+                type="button"
+                onClick={() => onOpen(l.application_id)}
+                disabled={Boolean(opening)}
+                className="card group p-5 text-left transition duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow-lift)] sm:p-6"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted">
+                      {l.loan?.loan_account_no || l.ref_code} {l.reviewed_at && <>· approved {fmtDate(l.reviewed_at)}</>}
+                    </p>
+                    <p className="display mt-1.5 text-3xl text-ink">{rupees(l.loan?.sanctioned_amount ?? l.requested_amount)}</p>
+                  </div>
+                  <span className={`chip shrink-0 border ${st.cls}`}>{st.label}</span>
+                </div>
+
+                {s ? (
+                  <>
+                    <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
+                      <Stat k="EMI" v={rupees(l.loan!.emi_amount ?? s.rows[0]?.emi ?? 0)} />
+                      <Stat k="Rate" v={`${Number(l.loan!.interest_rate)}% p.a.`} />
+                      <Stat k="Left to repay" v={l.loan?.status === "closed" ? "₹0" : rupees(s.pg.outstanding)} />
+                    </div>
+                    <div className="mt-4">
+                      <span className="block h-1.5 overflow-hidden rounded-full bg-paper-2">
+                        <span className="block h-full rounded-full bg-gradient-to-r from-gold to-brand" style={{ width: `${(s.pg.paidCount / s.pg.total) * 100}%` }} />
+                      </span>
+                      <p className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                        <span>
+                          {s.pg.paidCount} of {s.pg.total} EMIs paid
+                        </span>
+                        {l.loan?.status === "closed" ? (
+                          <span className="font-semibold text-ok">Fully repaid</span>
+                        ) : s.pg.overdueCount ? (
+                          <span className="font-semibold text-bad">
+                            {s.pg.overdueCount} EMI{s.pg.overdueCount > 1 ? "s" : ""} overdue
+                          </span>
+                        ) : s.next ? (
+                          <span>
+                            Next {rupees(s.next.emi)} on {fmtDate(s.next.date)}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-5 text-sm text-muted">The lender is preparing this loan. Details appear once they&rsquo;re confirmed.</p>
+                )}
+
+                <span className="mt-5 flex items-center gap-1.5 text-sm font-semibold text-ink group-hover:text-gold-ink">
+                  {busy ? <Loader2 size={15} className="animate-spin" /> : null} View loan <ArrowRight size={15} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </main>
   );
 }

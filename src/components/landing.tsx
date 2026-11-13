@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -57,18 +58,17 @@ export function Landing() {
         <div className="shell relative grid items-center gap-12 pb-14 pt-5 sm:pb-16 sm:pt-14 lg:pb-20 lg:pt-16 xl:grid-cols-[1.08fr_.92fr]">
           <div className="animate-rise">
             <span className="eyebrow eyebrow-light !text-[0.62rem] sm:!text-[0.68rem]">Easy loan applications for everyone</span>
-            <div className="mt-4 flex items-center gap-3 min-[380px]:gap-4 sm:mt-5 sm:gap-8 lg:gap-14 xl:block">
-              <h1 className="display min-w-0 flex-1 text-[2.05rem] leading-[1.06] min-[380px]:text-[2.25rem] sm:text-[3.5rem] md:text-[4rem] lg:text-[4.6rem] lg:leading-[1.03] xl:text-[4.6rem] 2xl:text-[5.1rem]">
+            <div className="mt-4 sm:mt-5">
+              <h1 className="display min-w-0 text-[2.05rem] leading-[1.06] min-[380px]:text-[2.25rem] sm:text-[3.5rem] md:text-[4rem] lg:text-[4.6rem] lg:leading-[1.03] xl:text-[4.6rem] 2xl:text-[5.1rem]">
                 <span className="text-gradient">Credit for your</span>
                 <br className="max-lg:hidden" />{" "}
                 <span className="text-gradient">next chapter,</span>
                 <br />
                 <span className="serif text-champagne whitespace-nowrap text-[1.12em] leading-none">done right.</span>
               </h1>
-              <MiniPhone />
             </div>
             <p className="mt-4 max-w-[34rem] text-[0.95rem] leading-relaxed text-ink-2 sm:mt-5 sm:text-lg">
-              Apply in about ten minutes. We verify your documents within <span className="whitespace-nowrap">24–48 hours</span> and hand them to{" "}
+              Apply in about five minutes. We verify your documents within <span className="whitespace-nowrap">24–48 hours</span> and hand them to{" "}
               {disclosed ? <strong className="font-semibold text-ink">{site?.lender_name}</strong> : "our RBI-registered lending partner"}. One ₹{FEE} fee, refunded
               in full if you&rsquo;re not approved.
             </p>
@@ -97,7 +97,7 @@ export function Landing() {
             </div>
           </div>
 
-          <HeroPhone days={days} disclosed={disclosed} />
+          <HeroBanner days={days} />
         </div>
       </section>
 
@@ -209,26 +209,68 @@ export function Landing() {
 
       {/* ========================== WHO CAN APPLY ========================== */}
       <section className="section-blue overflow-hidden">
-        <div className="shell py-14 sm:py-[4.5rem]">
-        <SectionHead eyebrow="Who can apply" title="Built for how India" accent="actually earns." />
-        <div className="mt-9 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-          {[
-            { icon: GraduationCap, t: "Students", d: "ID, address proof and your student ID card." },
-            { icon: CarFront, t: "Drivers", d: "Driving licence as ID, plus address proof." },
-            { icon: Briefcase, t: "Salaried", d: "Any government ID and address proof." },
-            { icon: Store, t: "Self-employed", d: "Shop owners, freelancers, gig workers." },
-            { icon: UserRound, t: "Unemployed", d: "Just KYC: your ID and address proof." },
-          ].map(({ icon: Icon, t, d }) => (
-            <div key={t} className="card group p-4 transition duration-300 last:col-span-2 hover:-translate-y-1 hover:shadow-[var(--shadow-lift)] sm:p-6 lg:last:col-span-1">
-              <span className="grid size-10 place-items-center rounded-xl border border-white/10 bg-gradient-to-br from-brand/25 to-transparent text-brand-ink transition group-hover:from-gold/30 group-hover:text-gold sm:size-12 sm:rounded-2xl">
-                <Icon size={19} />
-              </span>
-              <h3 className="mt-4 text-[0.95rem] font-bold text-ink sm:mt-5 sm:text-base">{t}</h3>
-              <p className="mt-1 text-[0.8rem] leading-relaxed text-muted sm:mt-1.5 sm:text-sm">{d}</p>
+        <div className="shell py-7 sm:py-10">
+          <div className="relative overflow-hidden rounded-[1.5rem] border border-gold/35 bg-[#101a3c] shadow-[0_30px_70px_-40px_rgb(0_0_0/0.8)]">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_85%_20%,rgb(247_198_66/0.2),transparent_40%),linear-gradient(120deg,transparent_50%,rgb(32_60_132/0.5))]" aria-hidden />
+            <div className="relative p-4 sm:p-6 lg:p-7">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+                <p className="display text-xl font-black italic tracking-tight text-ink sm:text-3xl">MONEY <span className="text-[#f5c842]">PAY</span></p>
+                <span className="rounded-full border border-gold/40 bg-gold/10 px-3 py-1.5 text-[0.65rem] font-black uppercase tracking-[0.16em] text-gold sm:text-xs">Who can apply · Easy &amp; fast</span>
+              </div>
+
+              <div className="mt-4 grid gap-5 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:gap-7">
+                <div>
+                  <p className="inline-flex items-center gap-2 rounded-md bg-emerald-500/20 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-emerald-300">
+                    <Check size={15} strokeWidth={3} /> Easy loan applications for everyone
+                  </p>
+                  <h2 className="display mt-3 max-w-2xl text-3xl font-black uppercase leading-[0.98] tracking-tight text-ink sm:text-5xl">
+                    Get your loan <span className="text-[#f5c842]">application</span>
+                  </h2>
+                  <p className="mt-3 max-w-xl text-sm leading-relaxed text-ink-2 sm:text-base">
+                    Apply online in about five minutes with digital documents. No CIBIL score is requested on this form. The lending partner decides the final loan offer after review.
+                  </p>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {[
+                      { icon: GraduationCap, title: "STUDENT", detail: "Student ID card, government ID & address proof" },
+                      { icon: CarFront, title: "DRIVERS", detail: "Driving licence as ID, plus address proof" },
+                      { icon: UserRound, title: "UNEMPLOYED", detail: "KYC: your ID and current address proof" },
+                      { icon: Briefcase, title: "SALARIED & SELF-EMPLOYED", detail: "Government ID and address proof" },
+                    ].map(({ icon: Icon, title, detail }) => (
+                      <div key={title} className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2.5 sm:px-3.5">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f5c842]/15 text-[#f5c842]"><Icon size={17} /></span>
+                        <span><span className="block text-xs font-black tracking-wide text-ink sm:text-sm">{title}</span><span className="mt-0.5 block text-[0.68rem] leading-snug text-muted sm:text-xs">{detail}</span></span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-white/10 bg-[#080e22]/75 p-4 text-center sm:p-5">
+                  <span className="rounded-full border border-gold/35 bg-gold/10 px-3 py-1 text-[0.65rem] font-black uppercase tracking-[0.17em] text-gold">Quick &amp; easy application</span>
+                  <div className="relative mt-3 grid size-32 place-items-center rounded-full border-[6px] border-emerald-500/90 bg-emerald-400/10 sm:size-36">
+                    <div><Clock3 size={22} className="mx-auto text-emerald-300" /><p className="display mt-0.5 text-3xl font-black text-emerald-300 sm:text-4xl">5</p><p className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-2">minutes</p></div>
+                  </div>
+                  <p className="mt-3 max-w-xs text-[0.7rem] leading-relaxed text-muted">To complete your application. Our team reviews documents and payment within 24–48 hours; the lending partner decides the final loan offer.</p>
+                  <div className="mt-4 grid w-full grid-cols-2 gap-1.5 text-left sm:grid-cols-3">
+                    <div className="rounded-xl bg-white/[0.05] p-3"><FileLock2 size={17} className="text-gold" /><p className="mt-1 text-[0.68rem] font-bold uppercase leading-tight text-ink">No CIBIL score</p><p className="mt-1 text-[0.62rem] text-muted">No score entry on this form</p></div>
+                    <div className="rounded-xl bg-white/[0.05] p-3"><FileCheck2 size={17} className="text-gold" /><p className="mt-1 text-[0.68rem] font-bold uppercase leading-tight text-ink">No paperwork</p><p className="mt-1 text-[0.62rem] text-muted">Apply online; upload documents</p></div>
+                    <div className="rounded-xl bg-white/[0.05] p-3"><ShieldCheck size={17} className="text-gold" /><p className="mt-1 text-[0.68rem] font-bold uppercase leading-tight text-ink">Safe &amp; secure</p><p className="mt-1 text-[0.62rem] text-muted">Private document storage</p></div>
+                    <div className="rounded-xl bg-white/[0.05] p-3"><BadgeIndianRupee size={17} className="text-gold" /><p className="mt-1 text-[0.68rem] font-bold uppercase leading-tight text-ink">High loan amount</p><p className="mt-1 text-[0.62rem] text-muted">Request up to ₹5,00,000</p></div>
+                    <div className="rounded-xl bg-white/[0.05] p-3"><FileCheck2 size={17} className="text-gold" /><p className="mt-1 text-[0.68rem] font-bold uppercase leading-tight text-ink">Minimum documents</p><p className="mt-1 text-[0.62rem] text-muted">Requirements depend on category</p></div>
+                    <div className="rounded-xl bg-white/[0.05] p-3"><Check size={17} className="text-gold" /><p className="mt-1 text-[0.68rem] font-bold uppercase leading-tight text-ink">Quick review</p><p className="mt-1 text-[0.62rem] text-muted">24–48 hours; lender decides</p></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-col items-center justify-between gap-2 rounded-xl bg-[#f5c842] px-4 py-2.5 text-center sm:flex-row sm:px-5">
+                <p className="text-[0.68rem] font-black uppercase tracking-wide text-[#171306] sm:text-xs">Apply now · Easy, fast &amp; hassle-free</p>
+                <Link href="/apply" className="inline-flex items-center gap-2 rounded-full bg-[#111a38] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#202e5b]">
+                  Start your application <ArrowRight size={16} />
+                </Link>
+              </div>
             </div>
-          ))}
+          </div>
         </div>
-      </div>
       </section>
 
       {/* ============================= PROCESS ============================ */}
@@ -459,164 +501,47 @@ function Receipt({ days }: { days: number }) {
 
 /** Compact phone shown beside the headline below the lg breakpoint. Everything is
  *  sized in em, so changing the root font-size per breakpoint scales the whole mockup. */
-function MiniPhone() {
+
+/** Hero photo: framed to match the dark + gold theme, with two floating status cards. */
+function HeroBanner({ days }: { days: number }) {
   return (
-    <div className="relative mb-[1.6em] mt-[1.4em] shrink-0 text-[8.4px] min-[380px]:text-[9.2px] min-[420px]:text-[10px] sm:text-[12.5px] md:text-[14px] lg:text-[16px] xl:hidden" aria-hidden>
-      <div className="absolute inset-[10%] translate-y-[8%] rounded-[3em] bg-brand/45 blur-2xl" />
-      <div className="relative w-[14.2em] rotate-[4deg] animate-float rounded-[2.5em] border border-white/15 bg-gradient-to-b from-[#1b2236] to-[#0b0f1a] p-[0.55em] shadow-[0_2.5em_5em_-1.5em_rgb(0_0_0/0.95),inset_0_1px_0_rgb(255_255_255/0.15)]">
-        <div className="relative overflow-hidden rounded-[2em] border border-white/[0.06] bg-[#080b14] px-[1.1em] pb-[1.2em] pt-[2.5em]">
-          <div className="absolute left-1/2 top-[0.75em] h-[1.15em] w-[4.4em] -translate-x-1/2 rounded-full bg-black" />
-          <div className="pointer-events-none absolute -right-[4em] -top-[4em] size-[11em] rounded-full bg-brand/30 blur-2xl" />
+    <figure className="relative mx-auto w-full max-w-[640px] animate-rise [animation-delay:150ms] xl:mr-0">
+      <div className="absolute -inset-3 rounded-[2.75rem] bg-gradient-to-br from-gold/25 via-gold/5 to-brand/25 blur-2xl" aria-hidden />
+      <div className="relative overflow-hidden rounded-[1.75rem] border border-gold/30 bg-[#f9c80e] shadow-[0_50px_100px_-35px_rgb(0_0_0/0.95)] sm:rounded-[2.25rem]">
+        <Image
+          src="/hero-banner.jpg"
+          alt="A smiling young man holding rupee notes and giving a thumbs up"
+          width={1672}
+          height={941}
+          priority
+          sizes="(min-width: 1280px) 640px, (min-width: 640px) 90vw, 100vw"
+          className="aspect-[16/11] w-full object-cover object-right xl:aspect-[5/4.4]"
+        />
+        <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-white/20" aria-hidden />
 
-          <div className="relative flex items-center justify-between">
-            <div>
-              <p className="text-[0.75em] leading-tight text-faint">Good evening</p>
-              <p className="text-[1.05em] font-bold leading-tight text-ink">Asha Rao</p>
-            </div>
-            <span className="grid size-[2.2em] place-items-center rounded-full bg-gradient-to-br from-gold to-[#b8924a] text-[0.85em] font-black text-[#1a1406]">AR</span>
-          </div>
-
-          <div className="relative mt-[0.9em] rounded-[1.3em] border border-white/10 bg-gradient-to-br from-[#1a2240] via-[#121830] to-[#0d1120] p-[0.95em]">
-            <span className="inline-flex items-center gap-[0.3em] rounded-full border border-warn/25 bg-warn-soft px-[0.6em] py-[0.15em] text-[0.72em] font-bold text-warn">
-              <Clock3 className="size-[1em]" /> In review
+        {/* Floating status cards, sitting on the empty yellow side of the photo */}
+        <div className="absolute left-3 top-3 animate-float sm:left-6 sm:top-6">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-white/15 bg-[#0a0e18]/85 px-3 py-2.5 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-3">
+            <span className="grid size-7 place-items-center rounded-full bg-ok text-paper sm:size-9">
+              <Check size={15} strokeWidth={3} />
             </span>
-            <p className="display mt-[0.45em] text-[1.9em] leading-none text-ink">₹75,000</p>
-            <div className="mt-[0.75em] h-[0.35em] overflow-hidden rounded-full bg-white/[0.08]">
-              <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-gold to-brand" />
-            </div>
+            <span>
+              <span className="block text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-muted sm:text-[0.65rem]">Application approved</span>
+              <span className="display block text-base leading-tight text-ink sm:text-xl">₹50,000</span>
+            </span>
           </div>
-
-          <ul className="relative mt-[0.95em] space-y-[0.65em]">
-            {[
-              ["Submitted", true],
-              ["Documents verified", true],
-              ["Payment check", false],
-            ].map(([t, done]) => (
-              <li key={t as string} className="flex items-center gap-[0.55em]">
-                <span
-                  className={`grid size-[1.45em] shrink-0 place-items-center rounded-full ${done ? "bg-ok text-paper" : "border border-brand bg-brand-soft"}`}
-                >
-                  {done ? <Check className="size-[0.85em]" strokeWidth={3} /> : <span className="size-[0.4em] rounded-full bg-brand-ink" />}
-                </span>
-                <span className="truncate text-[0.82em] font-semibold text-ink-2">{t}</span>
-              </li>
-            ))}
-          </ul>
-
-          <div className="mt-[0.95em] flex items-center gap-[0.45em] rounded-[0.9em] border border-gold/20 bg-gold-soft/70 px-[0.6em] py-[0.5em]">
-            <RotateCcw className="size-[1em] shrink-0 text-gold" />
-            <span className="text-[0.72em] font-semibold leading-tight text-gold-ink">Refund protected</span>
+        </div>
+        <div className="absolute bottom-3 left-3 sm:bottom-6 sm:left-6">
+          <div className="rounded-2xl border border-white/15 bg-[#0a0e18]/85 px-3 py-2.5 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:px-4 sm:py-3">
+            <p className="flex items-center gap-1.5 text-[0.7rem] font-semibold text-ink sm:text-sm">
+              <Clock3 size={14} className="text-gold" /> Decision in 24–48 hours
+            </p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[0.62rem] text-muted sm:text-xs">
+              <RotateCcw size={12} className="text-gold" /> ₹{FEE} refunded in {days} days if not approved
+            </p>
           </div>
         </div>
       </div>
-
-      {/* Floating badges — same as desktop, scaled with the phone */}
-      <div className="absolute -right-[0.4em] -top-[1.1em] flex items-center gap-[0.5em] whitespace-nowrap rounded-[0.9em] border border-white/10 bg-[#0d1220] px-[0.8em] py-[0.5em] shadow-[0_1.2em_2.4em_-1em_rgb(0_0_0/0.95),inset_0_1px_0_rgb(255_255_255/0.06)]">
-        <span className="relative flex size-[0.6em]">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-          <span className="relative inline-flex size-[0.6em] rounded-full bg-ok" />
-        </span>
-        <span className="text-[max(0.95em,9px)] font-semibold text-ink">Decision in 24–48h</span>
-      </div>
-      <div className="absolute -bottom-[1.4em] -left-[1.6em] flex items-center gap-[0.6em] whitespace-nowrap rounded-[1em] border border-white/10 bg-[#0d1220] px-[0.8em] py-[0.6em] shadow-[0_1.2em_2.4em_-1em_rgb(0_0_0/0.95),inset_0_1px_0_rgb(255_255_255/0.06)]">
-        <span className="grid size-[2.1em] place-items-center rounded-[0.6em] bg-ok-soft text-ok">
-          <BadgeCheck className="size-[1.15em]" />
-        </span>
-        <span className="leading-tight">
-          <span className="block text-[max(0.95em,9px)] font-bold text-ink">Documents verified</span>
-          <span className="hidden text-[0.78em] text-muted sm:block">Reviewed by a person, not a bot</span>
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function HeroPhone({ days, disclosed }: { days: number; disclosed: boolean }) {
-  return (
-    <div className="relative mx-auto hidden w-full max-w-[420px] animate-rise [animation-delay:150ms] xl:mr-0 xl:block">
-      <div className="absolute inset-x-6 bottom-0 top-10 rounded-[3rem] bg-brand/30 blur-3xl" aria-hidden />
-
-      <div className="relative mx-auto w-[320px] animate-float">
-        <div className="rounded-[3rem] border border-white/15 bg-gradient-to-b from-[#1b2236] to-[#0b0f1a] p-2.5 shadow-[0_50px_100px_-30px_rgb(0_0_0/0.95),inset_0_1px_0_rgb(255_255_255/0.15)]">
-          <div className="relative overflow-hidden rounded-[2.5rem] border border-white/[0.06] bg-[#080b14] px-5 pb-6 pt-11">
-            <div className="absolute left-1/2 top-3 h-6 w-24 -translate-x-1/2 rounded-full bg-black" aria-hidden />
-            <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full bg-brand/30 blur-3xl" aria-hidden />
-
-            <div className="relative flex items-center justify-between">
-              <div>
-                <p className="text-[0.65rem] text-faint">Good evening</p>
-                <p className="text-sm font-bold text-ink">Asha Rao</p>
-              </div>
-              <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-gold to-[#b8924a] text-xs font-black text-[#1a1406]">AR</span>
-            </div>
-
-            <div className="relative mt-5 rounded-3xl border border-white/10 bg-gradient-to-br from-[#1a2240] via-[#121830] to-[#0d1120] p-5">
-              <div className="flex items-center justify-between">
-                <span className="text-[0.62rem] font-semibold text-muted">Personal loan</span>
-                <span className="chip border-warn/25 bg-warn-soft px-2 py-0.5 text-[0.6rem] text-warn">
-                  <Clock3 size={10} /> In review
-                </span>
-              </div>
-              <p className="display mt-4 text-[2.1rem] leading-none text-ink">₹75,000</p>
-              <p className="mt-1.5 text-[0.68rem] text-muted">Requested · Self-employed</p>
-              <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
-                <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-gold to-brand" />
-              </div>
-              <div className="mt-2 flex justify-between text-[0.6rem] text-faint">
-                <span>Submitted</span>
-                <span className="text-ink-2">Checking</span>
-                <span>Decision</span>
-              </div>
-            </div>
-
-            <ol className="relative mt-5 space-y-4">
-              {[
-                ["Application submitted", "Today, 10:42", "done"],
-                ["Documents verified", "Today, 14:05", "done"],
-                ["Payment confirmation", "In progress", "active"],
-              ].map(([t, s, st]) => (
-                <li key={t} className="flex items-center gap-3">
-                  <span
-                    className={`grid size-6 shrink-0 place-items-center rounded-full ${
-                      st === "done" ? "bg-ok text-paper" : "animate-pulse-ring border border-brand bg-brand-soft"
-                    }`}
-                  >
-                    {st === "done" ? <Check size={12} strokeWidth={3} /> : <span className="size-1.5 rounded-full bg-brand-ink" />}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[0.75rem] font-semibold text-ink">{t}</p>
-                    <p className="text-[0.62rem] text-faint">{s}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-
-            <div className="mt-5 flex items-center gap-3 rounded-2xl border border-gold/20 bg-gold-soft/70 p-3">
-              <RotateCcw size={15} className="shrink-0 text-gold" />
-              <p className="text-[0.66rem] leading-snug text-ink-2">
-                <span className="font-semibold text-gold-ink">Refund protected.</span> ₹{FEE} back within {days} days if declined.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute hidden items-center rounded-2xl border border-white/10 bg-[#0d1220] shadow-[0_24px_50px_-18px_rgb(0_0_0/0.95),inset_0_1px_0_rgb(255_255_255/0.06)] sm:flex -bottom-5 -left-3 gap-3 px-4 py-3 xl:-left-10 2xl:-left-16">
-        <span className="grid size-9 place-items-center rounded-xl bg-ok-soft text-ok">
-          <BadgeCheck size={17} />
-        </span>
-        <div>
-          <p className="text-[0.8rem] font-bold text-ink">Documents verified</p>
-          <p className="text-[0.68rem] text-muted">Reviewed by a person, not a bot</p>
-        </div>
-      </div>
-      <div className="absolute hidden items-center rounded-2xl border border-white/10 bg-[#0d1220] shadow-[0_24px_50px_-18px_rgb(0_0_0/0.95),inset_0_1px_0_rgb(255_255_255/0.06)] sm:flex -right-3 top-0 gap-2.5 px-3.5 py-2.5 xl:-right-2 2xl:-right-12">
-        <span className="relative flex size-2">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-          <span className="relative inline-flex size-2 rounded-full bg-ok" />
-        </span>
-        <p className="text-[0.75rem] font-semibold text-ink">{disclosed ? "RBI-registered lender" : "Decision in 24–48h"}</p>
-      </div>
-    </div>
+    </figure>
   );
 }

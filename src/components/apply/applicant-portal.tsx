@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Plus, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, CheckCircle2, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/use-session";
 import { useSettings } from "@/lib/settings-context";
@@ -26,6 +27,9 @@ export function ApplicantPortal() {
   const [creating, setCreating] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Keeps the guest form open while its account is being created on submit
+  const [keepGuestForm, setKeepGuestForm] = useState(false);
+  const wantsLogin = params.get("mode") === "signin";
 
   const load = useCallback(async () => {
     if (!supabase || !user) return;
@@ -75,6 +79,45 @@ export function ApplicantPortal() {
     );
   if (!ready || settingsLoading) return <Spinner />;
 
+  // Not signed in: the form opens straight away; the account is created on the last step.
+  if ((!user && !wantsLogin) || keepGuestForm) {
+    const open = disclosed && Boolean(payment?.qr_path && payment.upi_id && payment.payee_name);
+    return (
+      <main className="shell py-8 sm:py-10">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <span className="eyebrow">New application</span>
+            <h1 className="display mt-5 text-4xl sm:text-5xl">
+              <span className="text-gradient">Let&rsquo;s get you</span> <span className="serif text-champagne">started.</span>
+            </h1>
+            <p className="mt-2 text-sm text-muted">Takes about five minutes. Keep your ID, address proof and UPI app ready.</p>
+          </div>
+          {!keepGuestForm && (
+            <Link href="/apply?mode=signin" className="btn btn-outline">
+              Already applied? Log in
+            </Link>
+          )}
+        </div>
+        {!open ? (
+          <Notice tone="warn">
+            {disclosed ? "Payment details are being set up. Please check back shortly." : "Applications are closed until the lending partner’s details are published. Please check back soon."}
+          </Notice>
+        ) : (
+          <ApplicationWizard
+            user={user}
+            onAccountCreating={() => setKeepGuestForm(true)}
+            onSubmitted={(ref) => {
+              setKeepGuestForm(false);
+              setJustSubmitted(ref);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              void load();
+            }}
+          />
+        )}
+      </main>
+    );
+  }
+
   if (!user) {
     return (
       <main className="shell grid items-center gap-10 py-10 sm:py-14 lg:grid-cols-[1fr_440px]">
@@ -82,12 +125,15 @@ export function ApplicantPortal() {
           <span className="eyebrow">Apply in four steps</span>
           <h1 className="display mt-6 text-4xl leading-[1.05] sm:text-5xl"><span className="text-gradient">Your application, start to decision,</span> <span className="serif text-champagne">in one place.</span></h1>
           <p className="mt-4 max-w-lg text-muted">
-            Create an account so you can submit securely, return later, and see every update, including your refund if you&rsquo;re not approved.
+            Log in with your mobile number and password to see your application, any requests from our team, and your refund if you&rsquo;re not approved.
           </p>
+          <Link href="/apply" className="btn btn-ghost mt-4 -ml-3">
+            New here? Start an application <ArrowRight size={15} />
+          </Link>
           <DisclosureCard className="mt-8 max-w-xl" />
         </div>
         <div className="order-1 lg:order-2">
-          <AuthCard initialMode={params.get("mode") === "signin" ? "signin" : "signup"} />
+          <AuthCard initialMode="signin" />
         </div>
       </main>
     );
@@ -176,7 +222,7 @@ export function ApplicantPortal() {
       ) : apps.length ? (
         <div className="space-y-6">
           {apps.map((a) => (
-            <ApplicationCard key={a.id} a={a} site={site} events={events.filter((e) => e.application_id === a.id)} highlight={a.ref_code === justSubmitted} />
+            <ApplicationCard key={a.id} a={a} site={site} events={events.filter((e) => e.application_id === a.id)} highlight={a.ref_code === justSubmitted} userId={user.id} onChanged={() => void load()} />
           ))}
         </div>
       ) : (

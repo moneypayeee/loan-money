@@ -5,6 +5,9 @@ import type { User } from "@supabase/supabase-js";
 import {
   ArrowLeft,
   ArrowRight,
+  Eye,
+  EyeOff,
+  KeyRound,
   BadgeIndianRupee,
   Check,
   CircleCheckBig,
@@ -18,9 +21,12 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useSettings } from "@/lib/settings-context";
 import { errorText, rupees } from "@/lib/format";
+import { EMAIL_RE, normalizePhone, phoneToAuthEmail } from "@/lib/phone-auth";
 import { CATEGORIES, FEE, IDENTITY_TYPES } from "@/lib/types";
 import { STEP_FIELDS, firstStepWithError, validateApplication, type ApplicationInput, type Errors } from "@/lib/application-validation";
 import { FileDrop, IMAGE_TYPES } from "../file-drop";
+import { LOAN_ESTIMATE } from "@/config/site";
+import { emi } from "@/lib/loan-math";
 import { FieldError, Notice } from "../ui";
 
 const STEPS = [
@@ -36,15 +42,33 @@ type Files = { identity: File | null; identity_back: File | null; address: File 
 
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "application/pdf": "pdf" };
 
-export function ApplicationWizard({ user, onSubmitted, demo = false }: { user: User; onSubmitted: (ref: string) => void; demo?: boolean }) {
+export function ApplicationWizard({
+  user,
+  onSubmitted,
+  onAccountCreating,
+  demo = false,
+}: {
+  /** null = not signed in: the account is created from the mobile number + a password on the last step. */
+  user: User | null;
+  onSubmitted: (ref: string) => void;
+  /** Called just before a new account is created, so the page keeps this form open while signing in. */
+  onAccountCreating?: () => void;
+  demo?: boolean;
+}) {
   const { site, payment, qrUrl } = useSettings();
-  const accountPhone = typeof user.user_metadata?.phone === "string" ? user.user_metadata.phone : "";
+  const accountPhone = typeof user?.user_metadata?.phone === "string" ? user.user_metadata.phone : "";
+  const guest = !user && !demo;
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [contactEmail, setContactEmail] = useState("");
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [serverError, setServerError] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [copied, setCopied] = useState(false);
+  const [tenure, setTenure] = useState(12); // only for the EMI estimate; the lender sets the real tenure
   const [files, setFiles] = useState<Files>({ identity: null, identity_back: null, address: null, student: null, proof: null });
   const [v, setV] = useState({
     full_name: "",
@@ -116,11 +140,42 @@ export function ApplicationWizard({ user, onSubmitted, demo = false }: { user: U
     }
     if (demo) return setServerError("Demo mode: everything checks out, but submitting needs Supabase. Add your keys to .env.local to go live.");
     if (!supabase || !payment?.qr_path) return setServerError("Payments are not configured yet. Please try again later.");
+    if (guest) {
+      const e: Errors = {};
+      if (pw.length < 8) e.password = "Use at least 8 characters.";
+      else if (pw !== pw2) e.password2 = "The passwords don't match.";
+      if (contactEmail.trim() && !EMAIL_RE.test(contactEmail.trim())) e.contact_email = "Enter a valid email, or leave it empty.";
+      if (Object.keys(e).length) {
+        setErrors(e);
+        return focusFirst(e);
+      }
+    }
     setBusy(true);
     try {
+      // Not signed in yet: create the account (or sign in, if this number already has one with this password)
+      let uid = user?.id;
+      if (!uid) {
+        setProgress("Creating your account…");
+        onAccountCreating?.();
+        const authEmail = phoneToAuthEmail(v.phone);
+        const su = await supabase.auth.signUp({
+          email: authEmail,
+          password: pw,
+          options: { data: { phone: normalizePhone(v.phone), contact_email: contactEmail.trim() || null } },
+        });
+        if (su.error) {
+          if (!/already registered|already exists/i.test(su.error.message)) throw su.error;
+          const si = await supabase.auth.signInWithPassword({ email: authEmail, password: pw });
+          if (si.error || !si.data.user)
+            throw new Error("This mobile number already has an account. Enter that account's password above, or log in first to apply from it.");
+          uid = si.data.user.id;
+        } else if (!su.data.session || !su.data.user) {
+          throw new Error("Your account was created but sign-in is waiting for email confirmation. Ask the site owner to turn off “Confirm email” in Supabase.");
+        } else uid = su.data.user.id;
+      }
       const upload = async (bucket: string, f: File | null) => {
         if (!f) return null;
-        const path = `${user.id}/${crypto.randomUUID()}.${EXT[f.type] ?? "bin"}`;
+        const path = `${uid}/${crypto.randomUUID()}.${EXT[f.type] ?? "bin"}`;
         const { error } = await supabase!.storage.from(bucket).upload(path, f, { contentType: f.type, upsert: false });
         if (error) throw error;
         return path;
@@ -170,6 +225,7 @@ export function ApplicationWizard({ user, onSubmitted, demo = false }: { user: U
     }
   }
 
+  const estimate = validAmount(Number(v.requested_amount)) ? emi(Number(v.requested_amount), LOAN_ESTIMATE.annual_rate, tenure) : 0;
   const f = (k: string) => ({ id: k, "aria-invalid": Boolean(errors[k]), "aria-describedby": errors[k] ? k + "-error" : undefined });
   const days = site?.refund_days ?? 7;
 
@@ -274,6 +330,7 @@ export function ApplicationWizard({ user, onSubmitted, demo = false }: { user: U
                   ))}
                 </div>
                 <p className="hint">Between ₹1,000 and ₹5,00,000. The lender sets the final amount.</p>
+                <EmiEstimate amount={Number(v.requested_amount)} tenure={tenure} setTenure={setTenure} />
               </div>
 
               <div className="grid gap-4 border-t hairline pt-5 sm:grid-cols-6">
@@ -460,6 +517,53 @@ export function ApplicationWizard({ user, onSubmitted, demo = false }: { user: U
                 <Summary k="UTR" v={v.transaction_id.toUpperCase()} mono />
                 <Summary k="Refund UPI" v={v.refund_upi_id} mono />
               </dl>
+              {guest && (
+                <div className="rounded-2xl border border-gold/25 bg-gold-soft/30 p-4 sm:p-5">
+                  <p className="flex items-center gap-2 font-semibold">
+                    <KeyRound size={16} className="text-gold" /> Set a password to track your application
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    You&rsquo;ll log in with <strong className="text-ink-2">+91 {v.phone}</strong> and this password to see your decision and any updates.
+                  </p>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <Field label="Password" k="password" err={errors.password} hint="At least 8 characters">
+                      <div className="relative">
+                        <input
+                          id="password"
+                          type={showPw ? "text" : "password"}
+                          autoComplete="new-password"
+                          className="!pr-11"
+                          value={pw}
+                          onChange={(e) => {
+                            setPw(e.target.value);
+                            setErrors(({ password: _a, ...rest }) => rest);
+                          }}
+                        />
+                        <button type="button" className="absolute inset-y-0 right-0 grid w-11 place-items-center text-muted" onClick={() => setShowPw((x) => !x)} aria-label={showPw ? "Hide password" : "Show password"}>
+                          {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Confirm password" k="password2" err={errors.password2}>
+                      <input
+                        id="password2"
+                        type={showPw ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={pw2}
+                        onChange={(e) => {
+                          setPw2(e.target.value);
+                          setErrors(({ password2: _a, ...rest }) => rest);
+                        }}
+                      />
+                    </Field>
+                    <div className="sm:col-span-2">
+                      <Field label="Email (optional)" k="contact_email" err={errors.contact_email} hint="For updates about your application. We never share it.">
+                        <input id="contact_email" type="email" autoComplete="email" maxLength={254} value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="you@example.com" />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              )}
               {serverError && <Notice tone="bad">{serverError}</Notice>}
             </section>
           )}
@@ -491,11 +595,17 @@ export function ApplicationWizard({ user, onSubmitted, demo = false }: { user: U
       </div>
 
       {/* Sidebar */}
-      <aside className="space-y-4 lg:sticky lg:top-24">
+      <aside className="space-y-4 lg:sticky lg:top-32">
         <div className="card card-glow p-6">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Your application</p>
           <p className="display mt-2 text-4xl text-champagne">{rupees(Number(v.requested_amount) || 0)}</p>
           <p className="text-sm text-muted">{v.category}</p>
+          {estimate > 0 && (
+            <p className="mt-3 rounded-xl border border-gold/20 bg-gold-soft/50 px-3 py-2 text-sm">
+              About <strong>{rupees(estimate)}</strong>/month for {tenure} months
+              <span className="block text-[0.7rem] text-muted">Estimate at {LOAN_ESTIMATE.annual_rate}% a year</span>
+            </p>
+          )}
           <ul className="mt-5 space-y-3 border-t hairline pt-5 text-sm">
             <li className="flex items-start gap-3">
               <BadgeIndianRupee size={17} className="mt-0.5 shrink-0 text-brand" />
@@ -567,6 +677,65 @@ function Summary({ k, v, strong = false, mono = false }: { k: string; v: string;
     <div className="grid grid-cols-[130px_1fr] gap-4 bg-white/[0.015] px-4 py-3 sm:grid-cols-[180px_1fr]">
       <dt className="text-muted">{k}</dt>
       <dd className={`break-words ${strong ? "font-bold" : "font-medium"} ${mono ? "font-mono" : ""}`}>{v || "—"}</dd>
+    </div>
+  );
+}
+
+const validAmount = (n: number) => Number.isInteger(n) && n >= 1000 && n <= 500000;
+
+/** EMI for each tenure at the illustrative rate, updating as the amount changes. */
+function EmiEstimate({ amount, tenure, setTenure }: { amount: number; tenure: number; setTenure: (t: number) => void }) {
+  const rate = LOAN_ESTIMATE.annual_rate;
+  if (!validAmount(amount)) return null;
+  const rows = LOAN_ESTIMATE.tenures.map((m) => {
+    const e = emi(amount, rate, m);
+    return { m, emi: e, total: e * m, interest: e * m - amount };
+  });
+  const pick = rows.find((r) => r.m === tenure) ?? rows[0];
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-gold/20 bg-gradient-to-b from-gold/[0.06] to-transparent">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-gold/15 px-4 py-3 sm:px-5">
+        <p className="text-sm font-semibold text-ink">What your EMI could look like</p>
+        <p className="text-xs text-muted">
+          for {rupees(amount)} at {rate}% a year
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 sm:p-4" role="radiogroup" aria-label="Repayment period">
+        {rows.map((r) => {
+          const on = r.m === pick.m;
+          return (
+            <button
+              key={r.m}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setTenure(r.m)}
+              className={`rounded-xl border p-3 text-left transition ${on ? "border-gold/60 bg-gold-soft shadow-[0_0_24px_-10px_rgb(227_194_125/0.8)]" : "border-white/10 bg-white/[0.03] hover:border-white/25"}`}
+            >
+              <span className={`block text-xs font-semibold ${on ? "text-gold-ink" : "text-muted"}`}>{r.m} months</span>
+              <span className="display mt-1 block text-lg leading-tight text-ink sm:text-xl">
+                {rupees(r.emi)}
+                <span className="text-xs font-normal text-muted">/mo</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <dl className="grid grid-cols-3 gap-px border-t border-gold/15 bg-white/[0.04] text-center">
+        {[
+          ["Monthly EMI", rupees(pick.emi)],
+          ["Total interest", rupees(pick.interest)],
+          ["Total to repay", rupees(pick.total)],
+        ].map(([k, val]) => (
+          <div key={k} className="bg-paper/80 px-2 py-3">
+            <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-muted">{k}</dt>
+            <dd className="mt-1 text-sm font-bold text-ink sm:text-base">{val}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="px-4 py-3 text-[0.7rem] leading-relaxed text-muted sm:px-5">
+        This is only an estimate. The lender decides the actual interest rate, tenure and charges, and shows them in a Key Fact Statement before you sign.
+      </p>
     </div>
   );
 }

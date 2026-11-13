@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, CarFront, Check, FileCheck2, GraduationCap, ImageIcon, QrCode, ScanSearch, UserPlus, UserRound } from "lucide-react";
+import { ArrowRight, CarFront, Check, Clock3, FileCheck2, GraduationCap, ImageIcon, QrCode, ScanSearch, UserPlus, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { DisclosureCard } from "@/components/lender-disclosure";
 import { LenderName, RefundDays } from "@/components/settings-text";
@@ -39,8 +39,33 @@ export default function HowItWorksPage() {
       <PageHeader
         eyebrow="How it works"
         title="From application to decision, step by step."
-        intro="Most people finish in about ten minutes. Have your ID, an address proof and a UPI app ready."
+        intro="Most people finish in about five minutes. Have your ID, an address proof and a UPI app ready."
       />
+
+      {/* Compact application summary: a horizontal treatment, distinct from the home-page flyer. */}
+      <section className="section-blue overflow-hidden">
+        <div className="shell py-6 sm:py-8">
+          <div className="relative grid gap-5 overflow-hidden rounded-2xl border border-gold/25 bg-[#101a3c] p-4 sm:p-6 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+            <div className="flex items-center gap-3 lg:pr-5">
+              <span className="grid size-14 shrink-0 place-items-center rounded-full border-4 border-emerald-500/80 bg-emerald-400/10 text-emerald-300">
+                <span className="text-center"><span className="display block text-xl font-black leading-none">5</span><span className="text-[0.5rem] font-bold uppercase">min</span></span>
+              </span>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-gold">Quick application</p>
+                <p className="mt-1 text-sm font-semibold text-ink">About five minutes to apply</p>
+              </div>
+            </div>
+            <div className="border-y border-white/10 py-4 lg:border-x lg:border-y-0 lg:px-6 lg:py-1">
+              <h2 className="display text-xl text-ink sm:text-2xl">Online, with no paper forms.</h2>
+              <p className="mt-1 text-sm leading-relaxed text-muted">No CIBIL score is requested on the form. Upload your ID and address proof digitally; extra documents depend on your category.</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end lg:pl-2">
+              <p className="flex items-center gap-2 text-xs leading-snug text-ink-2"><Clock3 size={17} className="shrink-0 text-gold" /><span><strong className="text-ink">Review: 24–48 hours</strong><br />Lender makes the final decision</span></p>
+              <Link href="/apply" className="btn btn-gold btn-sm">Apply now <ArrowRight size={15} /></Link>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ============================ STEPS — white ============================ */}
       <section className="theme-light">

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, ChevronRight, FileText, HelpCircle, Home, ListOrdered, LogIn, LogOut, Menu, Shield, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, FileText, HelpCircle, Home, ListOrdered, LogIn, LogOut, Menu, X } from "lucide-react";
 import { Logo } from "./ui";
 import { DisclosureBar } from "./lender-disclosure";
 import { signOut, useSession } from "@/lib/use-session";
@@ -41,8 +41,10 @@ export function Navbar() {
 
   return (
     <>
+      {/* The lender ticker and the header stay pinned to the top together */}
+      <div className="sticky top-0 z-40">
       <DisclosureBar />
-      <header className="sticky top-0 z-40 px-3 pt-2 sm:px-5 sm:pt-3">
+      <header className="px-3 pt-2 sm:px-5 sm:pt-3">
         <div
           className={`mx-auto flex h-14 max-w-[1360px] items-center justify-between gap-3 rounded-2xl border px-3 transition-all duration-300 sm:h-16 sm:px-5 ${
             scrolled || open
@@ -105,6 +107,7 @@ export function Navbar() {
           </div>
         </div>
       </header>
+      </div>
       <MobileSidebar open={open} onClose={close} active={active} signedIn={Boolean(user)} email={accountLabel(user)} />
     </>
   );
@@ -237,7 +240,7 @@ function MobileSidebar({
 
         <nav className="relative flex-1 overflow-y-auto px-3 py-4" aria-label="Mobile">
           <p className="px-3 pb-2 text-[0.65rem] font-bold uppercase tracking-[0.2em] text-faint">Menu</p>
-          {[...LINKS, { href: "/privacy", label: "Privacy", icon: Shield }].map(({ href, label, icon: Icon }) => (
+          {LINKS.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}

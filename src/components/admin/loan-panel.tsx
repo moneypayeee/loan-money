@@ -86,6 +86,33 @@ function fromLoan(l: Loan): Form {
   };
 }
 
+/** Form → Loan (demo mode only; live mode reads the saved row back from the database). */
+function toLoan(id: string, f: Form): Loan {
+  const n = (v: string) => (v === "" ? null : Number(v));
+  return {
+    application_id: id,
+    loan_account_no: f.loan_account_no,
+    sanctioned_amount: n(f.sanctioned_amount),
+    interest_rate: n(f.interest_rate),
+    tenure_months: n(f.tenure_months),
+    emi_amount: emi(Number(f.sanctioned_amount), Number(f.interest_rate), Number(f.tenure_months)) || null,
+    first_emi_date: f.first_emi_date || null,
+    disbursed_on: f.disbursed_on || null,
+    status: f.status,
+    note: f.note,
+    updated_at: new Date().toISOString(),
+    disbursed_amount: n(f.disbursed_amount),
+    disbursed_to: f.disbursed_to,
+    processing_fee: n(f.processing_fee),
+    apr: n(f.apr),
+    late_fee: f.late_fee,
+    prepayment_terms: f.prepayment_terms,
+    repayment_method: f.repayment_method,
+    repayment_details: f.repayment_details,
+    repayment_link: f.repayment_link,
+  };
+}
+
 /** Strong, readable password for demo mode (live mode generates it in the database). */
 function demoPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -109,11 +136,26 @@ const TABS: { id: Tab; label: string; icon: typeof ReceiptText }[] = [
 export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
   const live = !ctx.demo && Boolean(supabase);
   const [tab, setTab] = useState<Tab>("loan");
-  const [form, setForm] = useState<Form>({ ...EMPTY, sanctioned_amount: String(app.requested_amount) });
-  const [saved, setSaved] = useState<Form | null>(null); // last saved loan (drives the EMI schedule)
-  const [payments, setPayments] = useState<LoanPayment[]>([]);
+  // Start from what the console already has loaded (the live fetch below refreshes it)
+  const known = ctx.loans.find((l) => l.application_id === app.id);
+  const [form, setForm] = useState<Form>(() => (known ? fromLoan(known) : { ...EMPTY, sanctioned_amount: String(app.requested_amount) }));
+  const [saved, setSaved] = useState<Form | null>(() => (known ? fromLoan(known) : null)); // last saved loan (drives the EMI schedule)
+  const [payments, setPayments] = useState<LoanPayment[]>(() =>
+    ctx.payments
+      .filter((p) => p.application_id === app.id)
+      .map(({ instalment_no, paid_on, amount, reference }) => ({ instalment_no, paid_on, amount, reference }))
+      .sort((a, b) => a.instalment_no - b.instalment_no),
+  );
   const [docs, setDocs] = useState<LoanDocument[]>([]);
-  const [access, setAccess] = useState<BorrowerAccess | null>(null);
+  const [access, setAccess] = useState<BorrowerAccess | null>(() => ctx.access.find((a) => a.application_id === app.id) ?? null);
+
+  // Demo mode: keep the console's Loans / Collections / Customers tabs in step with edits made here
+  const { syncDemoLoan } = ctx;
+  useEffect(() => {
+    if (live || !saved) return;
+    syncDemoLoan(app.id, toLoan(app.id, saved), payments);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, saved, payments, app.id]);
   const [loading, setLoading] = useState(live);
   const [err, setErr] = useState("");
 
@@ -691,6 +733,7 @@ function LoginTab({
               " · no password issued yet"
             )}
           </p>
+          <p className="mt-1 text-xs text-muted">One password per mobile number. It opens every loan on this number, so a repeat customer keeps the same login.</p>
         </div>
         {!access ? (
           <button type="button" className="btn btn-gold btn-sm" disabled={issuing} onClick={() => void issue()}>
@@ -713,7 +756,7 @@ function LoginTab({
       </div>
       {confirmRegen && (
         <p className="mt-3 flex items-start gap-2 text-xs text-warn">
-          <TriangleAlert size={14} className="mt-0.5 shrink-0" /> The old password stops working and the borrower is logged out everywhere.
+          <TriangleAlert size={14} className="mt-0.5 shrink-0" /> The old password stops working for every loan on this number, and the borrower is logged out everywhere.
         </p>
       )}
       {password && (

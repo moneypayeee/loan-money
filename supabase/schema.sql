@@ -13,7 +13,7 @@
 --   • application_kyc        – private KYC details (1:1 with applications)
 --   • application_events     – audit timeline shown to applicant and admin
 --   • loans                  – loan details the admin records after approval
---   • borrower_access/_sessions – borrower login (admin-generated password)
+--   • borrower_accounts/_sessions – borrower login: one password per mobile number, all loans
 --   • storage buckets + RLS  – public QR, private payment proofs & KYC docs
 --   • RPCs                   – the ONLY way to write data (validated server-side)
 --
@@ -147,6 +147,17 @@ alter table public.applications add column if not exists updated_at timestamptz 
 alter table public.applications add column if not exists contact_email text
   check (contact_email is null or contact_email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$');
 create index if not exists applications_phone_idx on public.applications(phone) where status = 'accepted';
+-- KYC is checked on its own (KYC tab) before the approve / decline decision
+alter table public.applications add column if not exists kyc_status text not null default 'pending'
+  check (kyc_status in ('pending','verified','problem','resubmit'));
+alter table public.applications add column if not exists kyc_note text not null default '' check (length(kyc_note) <= 1000);
+alter table public.applications add column if not exists kyc_requested_docs text[] not null default '{}';
+alter table public.applications add column if not exists kyc_reviewed_at timestamptz;
+alter table public.applications add column if not exists kyc_reviewed_by uuid references auth.users(id) on delete set null;
+-- Applications reviewed before the KYC tab existed keep their KYC result
+update public.applications set kyc_status = 'verified', kyc_reviewed_at = coalesce(kyc_reviewed_at, reviewed_at)
+ where kyc_verified and kyc_status = 'pending';
+create index if not exists applications_kyc_queue_idx on public.applications(kyc_status, created_at) where status = 'pending';
 
 -- Human-friendly reference, e.g. MP-7F3A9C21 (backfill existing rows)
 update public.applications
@@ -430,8 +441,11 @@ begin
   if v_app.status <> 'pending' then raise exception 'This application has already been reviewed.'; end if;
 
   if p_decision = 'accepted' then
-    if not v_paid or not v_kyc then
-      raise exception 'Confirm the payment was received and KYC was reviewed before accepting.';
+    if v_app.kyc_status <> 'verified' then
+      raise exception 'Verify the KYC documents in the KYC tab before approving.';
+    end if;
+    if not v_paid then
+      raise exception 'Confirm the payment was received before approving.';
     end if;
     if not exists(select 1 from public.application_kyc where application_id = p_id) then
       raise exception 'This application has no KYC documents and cannot be accepted.';
@@ -441,6 +455,7 @@ begin
   end if;
 
   v_refund := case when p_decision = 'rejected' and v_paid then 'pending' else 'not_applicable' end;
+  v_kyc    := v_app.kyc_status = 'verified';  -- KYC result comes from the KYC review, not this call
 
   update public.applications
      set status = p_decision, payment_verified = v_paid, kyc_verified = v_kyc,
@@ -650,7 +665,9 @@ create extension if not exists pgcrypto with schema extensions;
 -- Event kinds (re-declared so upgrades pick up the new ones)
 alter table public.application_events drop constraint if exists application_events_kind_check;
 alter table public.application_events add constraint application_events_kind_check
-  check (kind in ('submitted','accepted','rejected','refund_due','no_refund','refunded','loan_updated','access_issued','payment_recorded','document_added'));
+  check (kind in ('submitted','accepted','rejected','refund_due','no_refund','refunded','loan_updated','access_issued','payment_recorded','document_added',
+                  'payment_removed','document_removed',
+                  'kyc_verified','kyc_problem','kyc_resubmit','kyc_resubmitted'));
 
 create table if not exists public.loans (
   application_id    uuid primary key references public.applications(id) on delete cascade,
@@ -684,8 +701,10 @@ create policy "Read own loan or admin" on public.loans for select to authenticat
   public.is_admin() or exists(select 1 from public.applications a where a.id = application_id and a.user_id = auth.uid())
 );
 
-create table if not exists public.borrower_access (
-  application_id  uuid primary key references public.applications(id) on delete cascade,
+-- Borrower login: ONE account per mobile number. It covers every approved loan
+-- on that number, so a repeat customer keeps one password and sees all loans.
+create table if not exists public.borrower_accounts (
+  phone           text primary key check (phone ~ '^[6-9][0-9]{9}$'),
   password_hash   text not null,
   issued_at       timestamptz not null default now(),
   issued_by       uuid references auth.users(id) on delete set null,
@@ -693,19 +712,46 @@ create table if not exists public.borrower_access (
   locked_until    timestamptz,
   last_login_at   timestamptz
 );
-alter table public.borrower_access enable row level security;
+alter table public.borrower_accounts enable row level security;
+revoke all on public.borrower_accounts from anon, authenticated;
+grant select (phone, issued_at, last_login_at, locked_until) on public.borrower_accounts to authenticated;
+drop policy if exists "Admins read borrower accounts" on public.borrower_accounts;
+create policy "Admins read borrower accounts" on public.borrower_accounts for select to authenticated using (public.is_admin());
+
+-- Upgrade from one-password-per-loan: the newest password on each number is kept,
+-- so existing borrowers log in exactly as before. Old per-loan sessions end.
+do $$
+begin
+  if exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'borrower_access') then
+    insert into public.borrower_accounts(phone, password_hash, issued_at, issued_by, last_login_at)
+    select distinct on (a.phone) a.phone, b.password_hash, b.issued_at, b.issued_by, b.last_login_at
+      from public.borrower_access b join public.applications a on a.id = b.application_id
+     order by a.phone, b.issued_at desc
+    on conflict (phone) do nothing;
+    drop table public.borrower_access cascade;
+  end if;
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'borrower_sessions' and column_name = 'application_id') then
+    drop table public.borrower_sessions;
+  end if;
+end $$;
+
+-- Login status per approved loan, as the admin console reads it (no password hashes)
+create or replace view public.borrower_access with (security_invoker = true) as
+  select a.id as application_id, b.issued_at, b.last_login_at, b.locked_until
+    from public.applications a
+    join public.borrower_accounts b on b.phone = a.phone
+   where a.status = 'accepted';
 revoke all on public.borrower_access from anon, authenticated;
-grant select (application_id, issued_at, last_login_at, locked_until) on public.borrower_access to authenticated;
-drop policy if exists "Admins read borrower access" on public.borrower_access;
-create policy "Admins read borrower access" on public.borrower_access for select to authenticated using (public.is_admin());
+grant select on public.borrower_access to authenticated;
 
 create table if not exists public.borrower_sessions (
-  token_hash     text primary key,
-  application_id uuid not null references public.applications(id) on delete cascade,
-  created_at     timestamptz not null default now(),
-  expires_at     timestamptz not null
+  token_hash text primary key,
+  phone      text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null
 );
-create index if not exists borrower_sessions_app_idx on public.borrower_sessions(application_id);
+create index if not exists borrower_sessions_phone_idx on public.borrower_sessions(phone);
 alter table public.borrower_sessions enable row level security;
 revoke all on public.borrower_sessions from anon, authenticated;
 
@@ -785,84 +831,73 @@ end; $$;
 revoke all on function public.admin_save_loan(uuid,jsonb) from public, anon, authenticated;
 grant execute on function public.admin_save_loan(uuid,jsonb) to authenticated;
 
--- Admin: generate (or regenerate) the borrower's password. Returned once; only the hash is stored.
+-- Admin: generate (or regenerate) the borrower password for this loan's mobile number.
+-- One password covers all approved loans on the number. Returned once; only the hash is stored.
 create or replace function public.admin_issue_borrower_password(p_id uuid) returns text
 language plpgsql security definer set search_path = public
 as $$
 declare
   alphabet constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   v_bytes bytea := extensions.gen_random_bytes(12);
-  v_pw text := '';
+  v_pw    text := '';
+  v_phone text;
   i int;
 begin
   if not public.is_admin() then raise exception 'Admin access required.'; end if;
-  if not exists(select 1 from public.applications where id = p_id and status = 'accepted') then
-    raise exception 'Only approved applications can get a borrower login.';
-  end if;
+  select phone into v_phone from public.applications where id = p_id and status = 'accepted';
+  if v_phone is null then raise exception 'Only approved applications can get a borrower login.'; end if;
   for i in 0..11 loop
     v_pw := v_pw || substr(alphabet, (get_byte(v_bytes, i) % length(alphabet)) + 1, 1);
     if i in (3, 7) then v_pw := v_pw || '-'; end if;
   end loop;
 
-  insert into public.borrower_access(application_id, password_hash, issued_at, issued_by, failed_attempts, locked_until)
-  values (p_id, extensions.crypt(v_pw, extensions.gen_salt('bf', 10)), now(), auth.uid(), 0, null)
-  on conflict (application_id) do update set
+  insert into public.borrower_accounts(phone, password_hash, issued_at, issued_by, failed_attempts, locked_until)
+  values (v_phone, extensions.crypt(v_pw, extensions.gen_salt('bf', 10)), now(), auth.uid(), 0, null)
+  on conflict (phone) do update set
     password_hash = excluded.password_hash, issued_at = now(), issued_by = auth.uid(), failed_attempts = 0, locked_until = null;
 
-  delete from public.borrower_sessions where application_id = p_id;  -- old password's sessions end now
+  delete from public.borrower_sessions where phone = v_phone;  -- the old password's sessions end now
 
   insert into public.application_events(application_id, kind, note, actor)
-  values (p_id, 'access_issued', 'Borrower login password issued', auth.uid());
+  values (p_id, 'access_issued', 'Borrower login password issued (works for every loan on this mobile number)', auth.uid());
   return v_pw;
 end; $$;
 revoke all on function public.admin_issue_borrower_password(uuid) from public, anon, authenticated;
 grant execute on function public.admin_issue_borrower_password(uuid) to authenticated;
 
--- Borrower: log in with mobile number + the admin-generated password.
--- Returns {token, expires_at} or {error}. Errors are returned (not raised) so the
--- failed-attempt counter is saved. If one number has several approved loans,
--- the password decides which loan is opened.
+-- Borrower: log in with mobile number + password. Returns {token, expires_at} or {error}.
+-- Errors are returned (not raised) so the failed-attempt counter is saved.
 drop function if exists public.borrower_login(text,text);
 create or replace function public.borrower_login(p_phone text, p_password text) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
 declare
   v_phone text := right(regexp_replace(coalesce(p_phone,''), '\D', '', 'g'), 10);
-  v_app uuid; v_token text; v_exp timestamptz; r record;
+  v_acc   public.borrower_accounts;
+  v_token text; v_exp timestamptz;
   generic constant text := 'Incorrect mobile number or password.';
 begin
   if v_phone !~ '^[6-9][0-9]{9}$' then return jsonb_build_object('error', 'Enter your 10-digit mobile number.'); end if;
-
-  if exists(select 1 from public.borrower_access b join public.applications a on a.id = b.application_id
-             where a.phone = v_phone and a.status = 'accepted' and b.locked_until > now()) then
-    return jsonb_build_object('error', 'Too many attempts. Try again in 15 minutes.');
+  select * into v_acc from public.borrower_accounts where phone = v_phone for update;
+  if not found or not exists(select 1 from public.applications where phone = v_phone and status = 'accepted') then
+    return jsonb_build_object('error', generic);
   end if;
+  if v_acc.locked_until > now() then return jsonb_build_object('error', 'Too many attempts. Try again in 15 minutes.'); end if;
 
-  for r in select b.application_id, b.password_hash from public.borrower_access b
-             join public.applications a on a.id = b.application_id
-            where a.phone = v_phone and a.status = 'accepted'
-            order by b.issued_at desc for update of b loop
-    if extensions.crypt(coalesce(p_password,''), r.password_hash) = r.password_hash then
-      v_app := r.application_id;
-      exit;
-    end if;
-  end loop;
-
-  if v_app is null then
-    update public.borrower_access b
-       set failed_attempts = case when b.failed_attempts + 1 >= 5 then 0 else b.failed_attempts + 1 end,
-           locked_until   = case when b.failed_attempts + 1 >= 5 then now() + interval '15 minutes' else null end
-      from public.applications a
-     where a.id = b.application_id and a.phone = v_phone and a.status = 'accepted';
+  if extensions.crypt(coalesce(p_password,''), v_acc.password_hash) <> v_acc.password_hash then
+    update public.borrower_accounts
+       set failed_attempts = case when failed_attempts + 1 >= 5 then 0 else failed_attempts + 1 end,
+           locked_until    = case when failed_attempts + 1 >= 5 then now() + interval '15 minutes' else null end
+     where phone = v_phone;
     return jsonb_build_object('error', generic);
   end if;
 
-  update public.borrower_access set failed_attempts = 0, locked_until = null, last_login_at = now() where application_id = v_app;
+  update public.borrower_accounts set failed_attempts = 0, locked_until = null, last_login_at = now() where phone = v_phone;
   delete from public.borrower_sessions where expires_at < now();
   v_token := encode(extensions.gen_random_bytes(32), 'hex');
   v_exp := now() + interval '12 hours';
-  insert into public.borrower_sessions(token_hash, application_id, expires_at)
-  values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_app, v_exp);
+  insert into public.borrower_sessions(token_hash, phone, expires_at)
+  values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_phone, v_exp);
   return jsonb_build_object('token', v_token, 'expires_at', v_exp);
 end; $$;
 revoke all on function public.borrower_login(text,text) from public, anon, authenticated;
@@ -950,6 +985,10 @@ as $$
 begin
   if not public.is_admin() then raise exception 'Admin access required.'; end if;
   delete from public.loan_payments where application_id = p_id and instalment_no = p_instalment;
+  if found then
+    insert into public.application_events(application_id, kind, note, actor)
+    values (p_id, 'payment_removed', 'EMI ' || p_instalment || ' payment removed', auth.uid());
+  end if;
 end; $$;
 revoke all on function public.admin_remove_payment(uuid,integer) from public, anon, authenticated;
 grant execute on function public.admin_remove_payment(uuid,integer) to authenticated;
@@ -983,34 +1022,56 @@ grant execute on function public.admin_add_loan_document(uuid,text,text,text) to
 create or replace function public.admin_remove_loan_document(p_doc uuid) returns text
 language plpgsql security definer set search_path = public
 as $$
-declare v_path text;
+declare v_path text; v_app uuid; v_title text;
 begin
   if not public.is_admin() then raise exception 'Admin access required.'; end if;
-  delete from public.loan_documents where id = p_doc returning path into v_path;
+  delete from public.loan_documents where id = p_doc returning path, application_id, title into v_path, v_app, v_title;
   if v_path is null then raise exception 'Document not found.'; end if;
+  insert into public.application_events(application_id, kind, note, actor)
+  values (v_app, 'document_removed', v_title || ' removed', auth.uid());
   return v_path;
 end; $$;
 revoke all on function public.admin_remove_loan_document(uuid) from public, anon, authenticated;
 grant execute on function public.admin_remove_loan_document(uuid) to authenticated;
 
--- Internal: session token → application id (not callable by clients)
-create or replace function public.borrower_session_app(p_token text) returns uuid
+-- Internal: session token → mobile number (not callable by clients)
+drop function if exists public.borrower_session_app(text);
+create or replace function public.borrower_session_phone(p_token text) returns text
 language sql stable security definer set search_path = public
-as $$ select application_id from public.borrower_sessions
+as $$ select phone from public.borrower_sessions
        where token_hash = encode(extensions.digest(coalesce(p_token,''), 'sha256'), 'hex') and expires_at > now() $$;
-revoke all on function public.borrower_session_app(text) from public, anon, authenticated;
+revoke all on function public.borrower_session_phone(text) from public, anon, authenticated;
 
--- Borrower: everything the dashboard needs, for a valid session token
-create or replace function public.borrower_portal(p_token text) returns jsonb
+-- Borrower: the list of all their loans, plus full details of one (p_app; newest when null)
+drop function if exists public.borrower_portal(text);
+create or replace function public.borrower_portal(p_token text, p_app uuid default null) returns jsonb
 language plpgsql stable security definer set search_path = public
 as $$
-declare v_app uuid;
+declare
+  v_phone text := public.borrower_session_phone(p_token);
+  v_app   uuid;
 begin
-  select application_id into v_app from public.borrower_sessions
-   where token_hash = encode(extensions.digest(coalesce(p_token,''), 'sha256'), 'hex') and expires_at > now();
-  if v_app is null then return jsonb_build_object('error', 'Your session has ended. Please log in again.'); end if;
+  if v_phone is null then return jsonb_build_object('error', 'Your session has ended. Please log in again.'); end if;
+  select id into v_app from public.applications
+   where phone = v_phone and status = 'accepted' and (p_app is null or id = p_app)
+   order by reviewed_at desc nulls last, created_at desc limit 1;
+  if v_app is null then
+    return jsonb_build_object('error', case when p_app is null then 'There is no approved loan on this number.' else 'Loan not found.' end);
+  end if;
 
   return jsonb_build_object(
+    'selected', v_app,
+    'loans', (select jsonb_agg(jsonb_build_object(
+        'application_id', a.id, 'ref_code', a.ref_code, 'requested_amount', a.requested_amount,
+        'reviewed_at', a.reviewed_at, 'lender_name', a.lender_name,
+        'loan', (select jsonb_build_object('loan_account_no', l.loan_account_no, 'sanctioned_amount', l.sanctioned_amount,
+                    'interest_rate', l.interest_rate, 'tenure_months', l.tenure_months, 'emi_amount', l.emi_amount,
+                    'first_emi_date', l.first_emi_date, 'status', l.status)
+                   from public.loans l where l.application_id = a.id),
+        'payments', coalesce((select jsonb_agg(jsonb_build_object('instalment_no', p.instalment_no, 'paid_on', p.paid_on, 'amount', p.amount, 'reference', p.reference) order by p.instalment_no)
+                   from public.loan_payments p where p.application_id = a.id), '[]'::jsonb))
+        order by a.reviewed_at desc nulls last, a.created_at desc)
+      from public.applications a where a.phone = v_phone and a.status = 'accepted'),
     'application', (select jsonb_build_object(
         'ref_code', a.ref_code, 'full_name', a.full_name, 'phone', a.phone, 'category', a.category,
         'requested_amount', a.requested_amount, 'created_at', a.created_at, 'reviewed_at', a.reviewed_at,
@@ -1031,8 +1092,8 @@ begin
       from public.application_events e where e.application_id = v_app and e.kind in ('submitted','accepted','loan_updated')), '[]'::jsonb)
   );
 end; $$;
-revoke all on function public.borrower_portal(text) from public, anon, authenticated;
-grant execute on function public.borrower_portal(text) to anon, authenticated;
+revoke all on function public.borrower_portal(text,uuid) from public, anon, authenticated;
+grant execute on function public.borrower_portal(text,uuid) to anon, authenticated;
 
 create or replace function public.borrower_logout(p_token text) returns void
 language sql security definer set search_path = public
@@ -1040,42 +1101,197 @@ as $$ delete from public.borrower_sessions where token_hash = encode(extensions.
 revoke all on function public.borrower_logout(text) from public, anon, authenticated;
 grant execute on function public.borrower_logout(text) to anon, authenticated;
 
--- Borrower: storage path of one of THEIR documents (the server route turns it into a 2-minute link)
+-- Borrower: storage path of a document on one of THEIR loans (the server route turns it into a 2-minute link)
 create or replace function public.borrower_document_path(p_token text, p_doc uuid) returns text
 language sql stable security definer set search_path = public
-as $$ select d.path from public.loan_documents d
-       where d.id = p_doc and d.application_id = public.borrower_session_app(p_token) $$;
+as $$ select d.path from public.loan_documents d join public.applications a on a.id = d.application_id
+       where d.id = p_doc and a.status = 'accepted' and a.phone = public.borrower_session_phone(p_token) $$;
 revoke all on function public.borrower_document_path(text,uuid) from public, anon, authenticated;
 grant execute on function public.borrower_document_path(text,uuid) to anon, authenticated;
 
--- Borrower: change the admin-generated password. Other sessions are signed out.
+-- Borrower: change the password (for all their loans). Other sessions are signed out.
 create or replace function public.borrower_change_password(p_token text, p_current text, p_new text) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
-declare v_app uuid := public.borrower_session_app(p_token); v_hash text;
+declare v_phone text := public.borrower_session_phone(p_token); v_hash text;
 begin
-  if v_app is null then return jsonb_build_object('error', 'Your session has ended. Please log in again.'); end if;
-  select password_hash into v_hash from public.borrower_access where application_id = v_app for update;
+  if v_phone is null then return jsonb_build_object('error', 'Your session has ended. Please log in again.'); end if;
+  select password_hash into v_hash from public.borrower_accounts where phone = v_phone for update;
   if v_hash is null or extensions.crypt(coalesce(p_current,''), v_hash) <> v_hash then
     return jsonb_build_object('error', 'Your current password is incorrect.');
   end if;
   if length(coalesce(p_new,'')) < 8 then return jsonb_build_object('error', 'New password must be at least 8 characters.'); end if;
   if p_new = p_current then return jsonb_build_object('error', 'Choose a different password.'); end if;
-  update public.borrower_access set password_hash = extensions.crypt(p_new, extensions.gen_salt('bf', 10)) where application_id = v_app;
+  update public.borrower_accounts set password_hash = extensions.crypt(p_new, extensions.gen_salt('bf', 10)) where phone = v_phone;
   delete from public.borrower_sessions
-   where application_id = v_app and token_hash <> encode(extensions.digest(p_token, 'sha256'), 'hex');
+   where phone = v_phone and token_hash <> encode(extensions.digest(p_token, 'sha256'), 'hex');
   return jsonb_build_object('ok', true);
 end; $$;
 revoke all on function public.borrower_change_password(text,text,text) from public, anon, authenticated;
 grant execute on function public.borrower_change_password(text,text,text) to anon, authenticated;
 
+-- ---------------------------------------------------------------------
+-- 16. Admin console: activity log and admin list
+-- ---------------------------------------------------------------------
+create index if not exists application_events_created_idx on public.application_events(created_at desc);
+
+-- Activity across all applications, newest first, with who did it.
+-- Page with p_before = created_at of the last row already shown.
+create or replace function public.admin_activity(p_limit integer default 200, p_before timestamptz default null)
+returns jsonb language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  return coalesce((
+    select jsonb_agg(x order by x.created_at desc, x.id desc) from (
+      select e.id, e.application_id, e.kind, e.note, e.created_at,
+             a.full_name, a.ref_code,
+             case when e.actor is null then 'system'
+                  when e.actor = a.user_id then 'applicant'
+                  else 'admin' end as actor,
+             case when e.actor is null then 'System'
+                  when e.actor = a.user_id then 'Applicant'
+                  else coalesce(u.email, 'Former admin') end as actor_label
+        from public.application_events e
+        join public.applications a on a.id = e.application_id
+        left join auth.users u on u.id = e.actor
+       where p_before is null or e.created_at < p_before
+       order by e.created_at desc, e.id desc
+       limit least(greatest(coalesce(p_limit, 200), 1), 1000)
+    ) x), '[]'::jsonb);
+end; $$;
+revoke all on function public.admin_activity(integer,timestamptz) from public, anon, authenticated;
+grant execute on function public.admin_activity(integer,timestamptz) to authenticated;
+
+create or replace function public.admin_list_admins() returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'user_id', m.user_id, 'email', u.email, 'created_at', m.created_at,
+             'last_sign_in_at', u.last_sign_in_at, 'is_me', m.user_id = auth.uid())
+           order by m.created_at)
+      from public.admin_users m join auth.users u on u.id = m.user_id), '[]'::jsonb);
+end; $$;
+revoke all on function public.admin_list_admins() from public, anon, authenticated;
+grant execute on function public.admin_list_admins() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 17. KYC review (KYC tab) and applicant document re-upload
+--     kyc_status: pending → verified | problem | resubmit
+--                 resubmit → pending again once the applicant uploads
+--     Only applications still under review can change KYC status.
+-- ---------------------------------------------------------------------
+create or replace function public.admin_review_kyc(p_id uuid, p_decision text, p_note text, p_docs text[] default '{}')
+returns void language plpgsql security definer set search_path = public
+as $$
+declare
+  v_app  public.applications;
+  v_note text := trim(coalesce(p_note,''));
+  v_docs text[] := coalesce(p_docs, '{}');
+  v_kyc  public.application_kyc;
+  d      text;
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  if p_decision is null or p_decision not in ('verified','problem','resubmit') then raise exception 'Invalid KYC result.'; end if;
+  if length(v_note) > 1000 then raise exception 'Note is too long (max 1000 characters).'; end if;
+
+  select * into v_app from public.applications where id = p_id for update;
+  if not found then raise exception 'Application not found.'; end if;
+  if v_app.status <> 'pending' then raise exception 'This application has already been decided.'; end if;
+  select * into v_kyc from public.application_kyc where application_id = p_id;
+  if not found then raise exception 'This application has no KYC documents.'; end if;
+
+  if p_decision = 'verified' then
+    v_docs := '{}';
+  elsif p_decision = 'problem' then
+    if length(v_note) < 3 then raise exception 'Describe the problem you found.'; end if;
+    v_docs := '{}';
+  else
+    if length(v_note) < 3 then raise exception 'Tell the applicant what is wrong with the document.'; end if;
+    if cardinality(v_docs) = 0 then raise exception 'Choose which document to upload again.'; end if;
+    foreach d in array v_docs loop
+      if d not in ('identity','identity_back','address','student') then raise exception 'Unknown document.'; end if;
+      if d = 'student' and v_app.category <> 'Student' then raise exception 'Only students have a student ID.'; end if;
+    end loop;
+    select array_agg(distinct x order by x) into v_docs from unnest(v_docs) x;
+  end if;
+
+  update public.applications
+     set kyc_status = p_decision, kyc_verified = (p_decision = 'verified'), kyc_note = v_note,
+         kyc_requested_docs = v_docs, kyc_reviewed_at = now(), kyc_reviewed_by = auth.uid(), updated_at = now()
+   where id = p_id;
+
+  insert into public.application_events(application_id, kind, note, actor)
+  values (p_id, 'kyc_' || p_decision,
+          case p_decision when 'verified' then coalesce(nullif(v_note,''), 'KYC documents verified')
+                          else v_note end,
+          auth.uid());
+end; $$;
+revoke all on function public.admin_review_kyc(uuid,text,text,text[]) from public, anon, authenticated;
+grant execute on function public.admin_review_kyc(uuid,text,text,text[]) to authenticated;
+
+-- Applicant: upload the document(s) the reviewer asked for. p_docs = {"address": "<path>", ...}
+-- Files must already be uploaded to kyc-documents/<their user id>/...
+create or replace function public.applicant_resubmit_kyc(p_id uuid, p_docs jsonb)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_app public.applications;
+  d     text;
+  v_path text;
+begin
+  if v_uid is null then raise exception 'Please sign in again.'; end if;
+  select * into v_app from public.applications where id = p_id and user_id = v_uid for update;
+  if not found then raise exception 'Application not found.'; end if;
+  if v_app.status <> 'pending' or v_app.kyc_status <> 'resubmit' then
+    raise exception 'No new documents are needed for this application.';
+  end if;
+
+  foreach d in array v_app.kyc_requested_docs loop
+    v_path := p_docs->>d;
+    if v_path is null or not exists(
+         select 1 from storage.objects
+          where bucket_id = 'kyc-documents' and name = v_path
+            and (storage.foldername(name))[1] = v_uid::text) then
+      raise exception 'Upload every requested document.';
+    end if;
+    if exists(select 1 from public.application_kyc
+               where application_id = p_id
+                 and v_path in (identity_path, coalesce(identity_back_path,''), address_path, coalesce(student_path,''))) then
+      raise exception 'Upload a new file, not the one you sent before.';
+    end if;
+    update public.application_kyc set
+      identity_path      = case when d = 'identity'      then v_path else identity_path end,
+      identity_back_path = case when d = 'identity_back' then v_path else identity_back_path end,
+      address_path       = case when d = 'address'       then v_path else address_path end,
+      student_path       = case when d = 'student'       then v_path else student_path end
+     where application_id = p_id;
+  end loop;
+
+  update public.applications
+     set kyc_status = 'pending', kyc_requested_docs = '{}', updated_at = now()
+   where id = p_id;
+
+  insert into public.application_events(application_id, kind, note, actor)
+  values (p_id, 'kyc_resubmitted', 'New document uploaded: ' || array_to_string(v_app.kyc_requested_docs, ', '), v_uid);
+end; $$;
+revoke all on function public.applicant_resubmit_kyc(uuid,jsonb) from public, anon, authenticated;
+grant execute on function public.applicant_resubmit_kyc(uuid,jsonb) to authenticated;
+
+-- Admins are added and removed in Supabase (see the end of this file), not from the console
+drop function if exists public.admin_add_admin(text);
+drop function if exists public.admin_remove_admin(uuid);
 
 commit;
 
 -- =====================================================================
--- After running: promote your administrator (replace the mobile number they signed up with):
+-- After running: create the admin in Authentication → Users (email + password), then promote it:
 --
 --   insert into public.admin_users(user_id)
---   select id from auth.users where raw_user_meta_data->>'phone' = '9876543210'
+--   select id from auth.users where email = 'admin@yourcompany.com'
 --   on conflict do nothing;
 -- =====================================================================

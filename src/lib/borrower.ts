@@ -43,19 +43,20 @@ export async function borrowerLogin(phone: string, password: string): Promise<{ 
   return { ok: true };
 }
 
-export async function borrowerPortal(): Promise<{ data: BorrowerPortalData } | { error: string }> {
+/** All the borrower's loans, plus full details of one (appId; the newest when omitted). */
+export async function borrowerPortal(appId?: string | null): Promise<{ data: BorrowerPortalData } | { error: string }> {
   const token = getToken();
   if (!token) return { error: "signed-out" };
   if (!supabase) {
     if (token !== DEMO_TOKEN) return { error: "signed-out" };
     const { demoPortal } = await import("./borrower-demo");
-    return { data: demoPortal() };
+    return { data: demoPortal(appId) };
   }
-  const { data, error } = await supabase.rpc("borrower_portal", { p_token: token });
+  const { data, error } = await supabase.rpc("borrower_portal", { p_token: token, p_app: appId ?? null });
   if (error) return { error: error.message };
   const res = data as BorrowerPortalData & { error?: string };
   if (res.error) {
-    setToken(null);
+    if (/session/i.test(res.error)) setToken(null);
     return { error: res.error };
   }
   return { data: res };

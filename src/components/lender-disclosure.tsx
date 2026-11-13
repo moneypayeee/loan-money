@@ -1,29 +1,56 @@
 "use client";
 
-import { Building2, ShieldCheck } from "lucide-react";
+import { BadgeIndianRupee, Building2, Clock3, FileLock2, RotateCcw, ShieldCheck } from "lucide-react";
 import { useSettings } from "@/lib/settings-context";
+import { FEE } from "@/lib/types";
 
-/** Thin bar shown above the navigation on every public page. */
+/**
+ * Thin ticker above the navigation on every public page. It scrolls slowly
+ * (pauses on hover, and stays still for people who turn off motion) and is
+ * pinned to the top of the screen together with the header.
+ */
 export function DisclosureBar() {
   const { site, disclosed, loading } = useSettings();
-  if (loading) return <div className="h-8 border-b border-white/[0.06] sm:h-9" />;
+  if (loading) return <div className="h-8 border-b border-white/[0.06] bg-[#070a12] sm:h-9" />;
+
+  const items: { icon: typeof ShieldCheck; text: React.ReactNode }[] = [
+    disclosed && site
+      ? {
+          icon: ShieldCheck,
+          text: (
+            <>
+              Loans are provided by <strong className="font-semibold text-ink">{site.lender_name}</strong>, an RBI-registered{" "}
+              {site.lender_type === "Other RBI-regulated entity" ? "regulated entity" : site.lender_type} · RBI Reg.{" "}
+              <span className="font-mono text-gold-ink">{site.lender_reg_no}</span>
+            </>
+          ),
+        }
+      : { icon: ShieldCheck, text: "Lender details have not been published yet. Applications open once they are." },
+    { icon: BadgeIndianRupee, text: <>One-time ₹{FEE} application fee · no hidden charges</> },
+    { icon: RotateCcw, text: <>Not approved? Full ₹{FEE} refund within {site?.refund_days ?? 7} days</> },
+    { icon: Clock3, text: "Decision in 24–48 hours" },
+    { icon: FileLock2, text: "Your documents are stored privately" },
+  ];
+
+  const row = (hidden: boolean) => (
+    <div className="flex shrink-0 items-center" aria-hidden={hidden || undefined}>
+      {items.map(({ icon: Icon, text }, i) => (
+        <span key={i} className="flex items-center gap-2 whitespace-nowrap pr-10">
+          <Icon size={13} className="shrink-0 text-gold" />
+          <span>{text}</span>
+          <span className="ml-8 size-1 rounded-full bg-white/20" aria-hidden />
+        </span>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="relative border-b border-white/[0.06] bg-white/[0.015] text-[0.72rem] text-ink-2">
-      <div className="shell flex min-h-8 items-center justify-center gap-2 py-1.5 text-center sm:min-h-9 sm:py-2">
-        <ShieldCheck size={13} className="hidden shrink-0 text-gold sm:block" />
-        {disclosed && site ? (
-          <span className="truncate">
-            <span className="hidden sm:inline">Loans are provided by </span>
-            <strong className="font-semibold text-ink">{site.lender_name}</strong>
-            <span className="hidden sm:inline">, an RBI-registered {site.lender_type === "Other RBI-regulated entity" ? "regulated entity" : site.lender_type}</span> · RBI Reg.{" "}
-            <span className="font-mono text-gold-ink">{site.lender_reg_no}</span>
-          </span>
-        ) : (
-          <span className="truncate">
-            <span className="sm:hidden">Lender not published yet · applications closed</span>
-            <span className="hidden sm:inline">Lender details have not been published yet. Applications open once they are.</span>
-          </span>
-        )}
+    <div className="group relative border-b border-white/[0.06] bg-[#070a12]/95 text-[0.72rem] text-ink-2 backdrop-blur-xl">
+      <div className="mask-fade-x flex h-8 items-center overflow-hidden sm:h-9">
+        <div className="flex w-max animate-ticker group-hover:[animation-play-state:paused]">
+          {row(false)}
+          {row(true)}
+        </div>
       </div>
     </div>
   );

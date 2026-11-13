@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, FileText, ImageIcon, Loader2, RotateCcw, X } from "lucide-react";
+import { Check, Copy, ExternalLink, FileText, ImageIcon, Loader2, MessageCircle, RotateCcw, ScanFace, UserRound, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSettings } from "@/lib/settings-context";
-import { addDays, dateOnly, dateTime, errorText, rupees } from "@/lib/format";
+import { addDays, appRef, dateOnly, dateTime, errorText, rupees } from "@/lib/format";
 import type { Application, ApplicationEvent, Kyc } from "@/lib/types";
 import { Notice, RefundBadge, StatusBadge } from "../ui";
 import { formatPhone } from "@/lib/phone-auth";
@@ -12,6 +12,7 @@ import { buildTimeline, Timeline } from "../apply/application-card";
 import type { AdminCtx } from "./admin-console";
 import { DEMO_KYC } from "./demo-data";
 import { LoanPanel } from "./loan-panel";
+import { whatsappLink } from "./portfolio";
 
 type Doc = { label: string; url: string; pdf: boolean };
 
@@ -23,8 +24,7 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [paid, setPaid] = useState<boolean | null>(null);
-  const [kycOk, setKycOk] = useState(false);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(a.status === "pending" && a.kyc_status === "problem" ? a.kyc_note : "");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [refundRef, setRefundRef] = useState("");
@@ -86,8 +86,11 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
     }
   }
 
+  const kycOk = a.kyc_status === "verified";
+
   function demoError(decision: "accepted" | "rejected") {
-    if (decision === "accepted" && (paid !== true || !kycOk)) return "Confirm the payment was received and KYC was reviewed before accepting.";
+    if (decision === "accepted" && !kycOk) return "Verify the KYC documents in the KYC tab before approving.";
+    if (decision === "accepted" && paid !== true) return "Confirm the payment was received before approving.";
     if (decision === "rejected" && note.trim().length < 3) return "Give the applicant a reason for rejection.";
     return "";
   }
@@ -150,6 +153,15 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
 
   const opened = kyc !== undefined;
   const refundDays = site?.refund_days ?? 7;
+  const company = site?.company_name ?? "Money Pay";
+  const first = a.full_name.split(" ")[0];
+  const waText =
+    a.status === "pending"
+      ? `Hello ${first}, this is ${company}. We have received your loan application ${appRef(a)} and it is being reviewed. We will update you within 24–48 hours.`
+      : a.status === "accepted"
+        ? `Hello ${first}, this is ${company}. Good news: your application ${appRef(a)} has been approved and passed to ${a.lender_name ?? site?.lender_name ?? "our lending partner"}, who will contact you with the loan offer.`
+        : `Hello ${first}, this is ${company}. Your application ${appRef(a)} was not approved: ${a.admin_note}` +
+          (a.refund_status === "pending" ? ` Your ₹${a.fee} fee will be refunded to ${a.refund_upi_id ?? "your UPI account"} within ${refundDays} days.` : "");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`Application from ${a.full_name}`}>
@@ -163,6 +175,14 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
             <div className="mt-2 flex flex-wrap gap-1.5">
               <StatusBadge status={a.status} />
               <RefundBadge status={a.refund_status} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => ctx.openCustomer(a.user_id)}>
+                <UserRound size={14} /> Customer profile
+              </button>
+              <a className="btn btn-outline btn-sm" href={whatsappLink(a.phone, waText)} target="_blank" rel="noopener noreferrer">
+                <MessageCircle size={14} /> WhatsApp update
+              </a>
             </div>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close panel">
@@ -257,13 +277,30 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
                   <Choice checked={paid === false} onClick={() => setPaid(false)} label="No, payment not found" />
                 </div>
               </fieldset>
-              <label className={`mt-4 flex items-start gap-3 rounded-xl border p-3.5 text-sm ${opened ? "cursor-pointer" : "opacity-60"} ${kycOk ? "border-brand/40 bg-brand-soft" : "hairline bg-white/[0.02]"}`}>
-                <input type="checkbox" className="mt-0.5" disabled={!opened || !kyc} checked={kycOk} onChange={(e) => setKycOk(e.target.checked)} />
-                <span>
-                  I opened and checked every KYC document, and the details match.
-                  {!opened && <span className="block text-xs text-muted">Open the documents first.</span>}
+              <div
+                className={`mt-4 flex flex-col gap-3 rounded-xl border p-3.5 text-sm sm:flex-row sm:items-center sm:justify-between ${
+                  kycOk ? "border-ok/30 bg-ok-soft/60" : a.kyc_status === "problem" ? "border-bad/30 bg-bad-soft/60" : "hairline bg-white/[0.02]"
+                }`}
+              >
+                <span className="flex items-start gap-2.5">
+                  <ScanFace size={17} className={`mt-0.5 shrink-0 ${kycOk ? "text-ok" : a.kyc_status === "problem" ? "text-bad" : "text-gold"}`} />
+                  <span>
+                    <strong>
+                      {kycOk ? "KYC verified" : a.kyc_status === "problem" ? "KYC problem found" : a.kyc_status === "resubmit" ? "Waiting for a new document" : "KYC not verified yet"}
+                    </strong>
+                    <span className="block text-xs text-muted">
+                      {kycOk
+                        ? `Checked ${a.kyc_reviewed_at ? dateTime(a.kyc_reviewed_at) : ""}`
+                        : a.kyc_status === "problem" || a.kyc_status === "resubmit"
+                          ? a.kyc_note
+                          : "Documents are checked in the KYC tab before approval."}
+                    </span>
+                  </span>
                 </span>
-              </label>
+                <button type="button" className="btn btn-outline btn-sm shrink-0" onClick={() => ctx.openKyc(a.id)}>
+                  {kycOk ? "View KYC" : "Check KYC"}
+                </button>
+              </div>
               <div className="mt-4">
                 <label className="label" htmlFor="decision-note">
                   Note to applicant <span className="font-normal text-muted">(required to decline)</span>
@@ -283,9 +320,8 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
                   <ol className="mt-2 space-y-1.5 text-xs">
                     {(
                       [
-                        [opened && kyc !== null, "Open documents (in the Documents box above)"],
+                        [kycOk, "Verify KYC in the KYC tab"],
                         [paid === true, "Choose “Yes, payment found”"],
-                        [kycOk, "Tick “I opened and checked every KYC document”"],
                       ] as const
                     ).map(([done, label], i) => (
                       <li key={label} className={`flex items-center gap-2 ${done ? "text-ok" : "text-muted"}`}>

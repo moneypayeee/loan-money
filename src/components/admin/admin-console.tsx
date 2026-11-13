@@ -1,24 +1,51 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ExternalLink, FileStack, FlaskConical, LayoutDashboard, LogOut, Menu, RefreshCw, RotateCcw, Settings2, ShieldX, X } from "lucide-react";
+import {
+  BarChart3,
+  CalendarClock,
+  ExternalLink,
+  FileStack,
+  FlaskConical,
+  History,
+  Landmark,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  ReceiptIndianRupee,
+  ScanFace,
+  RefreshCw,
+  RotateCcw,
+  ShieldX,
+  UserCog,
+  Users,
+  X,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { DEMO_ADMIN_KEY, signOut, useSession } from "@/lib/use-session";
 import { useSettings } from "@/lib/settings-context";
-import { errorText } from "@/lib/format";
+import { errorText, todayIST } from "@/lib/format";
 import { accountLabel } from "@/lib/phone-auth";
-import { APPLICATION_COLUMNS, type Application, type DashboardStats } from "@/lib/types";
+import { APPLICATION_COLUMNS, type AdminLoanPayment, type Application, type BorrowerAccess, type DashboardStats, type Loan, type LoanPayment } from "@/lib/types";
 import { Logo, Notice, Spinner } from "../ui";
 import { Overview } from "./overview";
 import { ApplicationsPanel } from "./applications-panel";
 import { RefundsPanel } from "./refunds-panel";
-import { SettingsPanel } from "./settings-panel";
+import { CustomersPanel } from "./customers-panel";
+import { LoansPanel } from "./loans-panel";
+import { CollectionsPanel } from "./collections-panel";
+import { FeesPanel } from "./fees-panel";
+import { ActivityPanel } from "./activity-panel";
+import { ReportsPanel } from "./reports-panel";
+import { TeamPanel } from "./team-panel";
+import { KycPanel } from "./kyc-panel";
+import { buildCustomers, buildLoanRows, type Customer, type LoanRow } from "./portfolio";
 import { ApplicationDrawer } from "./application-drawer";
-import { demoApps, demoStats } from "./demo-data";
+import { demoAccess, demoApps, demoLoans, demoPayments, demoStats } from "./demo-data";
 
-export type Tab = "overview" | "applications" | "refunds" | "settings";
+export type Tab = "overview" | "customers" | "applications" | "kyc" | "loans" | "collections" | "fees" | "refunds" | "activity" | "reports" | "team";
 
 export type AdminCtx = {
   apps: Application[];
@@ -31,6 +58,22 @@ export type AdminCtx = {
   demo: boolean;
   /** Demo mode only: update an application in local state. */
   patch: (id: string, changes: Partial<Application>) => void;
+  /** Loan book (all loans, EMI payments and borrower logins). */
+  loans: Loan[];
+  payments: AdminLoanPayment[];
+  access: BorrowerAccess[];
+  loanRows: LoanRow[];
+  customers: Customer[];
+  /** Today in India, YYYY-MM-DD. */
+  today: string;
+  /** Show one customer's profile in the Customers tab. */
+  openCustomer: (userId: string) => void;
+  /** Open one application's documents in the KYC tab. */
+  openKyc: (appId: string) => void;
+  /** Mark an EMI as paid. Resolves to an error message, or null on success. */
+  recordPayment: (appId: string, p: LoanPayment) => Promise<string | null>;
+  /** Demo mode only: keep the console's loan book in step with edits made in the review drawer. */
+  syncDemoLoan: (appId: string, loan: Loan | null, payments: LoanPayment[]) => void;
 };
 
 export function AdminConsole() {
@@ -85,10 +128,14 @@ export function AdminConsole() {
 }
 
 function Console({ email, demo = false }: { email: string; demo?: boolean }) {
-  const { reload: reloadSettings } = useSettings();
   const [tab, setTab] = useState<Tab>("overview");
   const [filter, setFilter] = useState("pending");
   const [apps, setApps] = useState<Application[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [payments, setPayments] = useState<AdminLoanPayment[]>([]);
+  const [access, setAccess] = useState<BorrowerAccess[]>([]);
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [kycId, setKycId] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,20 +150,32 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
         setStats(demoStats(list));
         return list;
       });
+      setLoans((prev) => {
+        if (prev.length) return prev;
+        const l = demoLoans();
+        setPayments(demoPayments(l));
+        setAccess(demoAccess());
+        return l;
+      });
       setLoaded(true);
       return;
     }
     if (!supabase) return;
     setRefreshing(true);
     try {
-      const [a, s] = await Promise.all([
-        supabase.from("applications").select(APPLICATION_COLUMNS).order("created_at", { ascending: false }).limit(1000),
+      const [a, s, l, p, b] = await Promise.all([
+        supabase.from("applications").select(APPLICATION_COLUMNS).order("created_at", { ascending: false }).limit(5000),
         supabase.rpc("admin_dashboard_stats"),
+        supabase.from("loans").select("*").limit(5000),
+        supabase.from("loan_payments").select("application_id,instalment_no,paid_on,amount,reference").order("paid_on", { ascending: false }).limit(20000),
+        supabase.from("borrower_access").select("application_id,issued_at,last_login_at,locked_until").limit(5000),
       ]);
-      if (a.error) throw a.error;
-      if (s.error) throw s.error;
+      for (const r of [a, s, l, p, b]) if (r.error) throw r.error;
       setApps((a.data ?? []) as unknown as Application[]);
       setStats(s.data as DashboardStats);
+      setLoans((l.data ?? []) as Loan[]);
+      setPayments((p.data ?? []) as AdminLoanPayment[]);
+      setAccess((b.data ?? []) as BorrowerAccess[]);
     } catch (err) {
       setMsg({ tone: "bad", text: errorText(err) });
     } finally {
@@ -143,6 +202,28 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
     return () => window.clearInterval(t);
   }, [reload]);
 
+  const today = todayIST();
+  const loanRows = useMemo(() => buildLoanRows(apps, loans, payments, access, today), [apps, loans, payments, access, today]);
+  const customers = useMemo(() => buildCustomers(apps, loanRows), [apps, loanRows]);
+
+  async function recordPayment(appId: string, p: LoanPayment): Promise<string | null> {
+    if (demo) {
+      setPayments((prev) => [...prev.filter((x) => !(x.application_id === appId && x.instalment_no === p.instalment_no)), { ...p, application_id: appId }]);
+      return null;
+    }
+    if (!supabase) return "Supabase isn't configured.";
+    const { error } = await supabase.rpc("admin_record_payment", {
+      p_id: appId,
+      p_instalment: p.instalment_no,
+      p_paid_on: p.paid_on,
+      p_amount: p.amount,
+      p_reference: p.reference,
+    });
+    if (error) return errorText(error);
+    setPayments((prev) => [...prev.filter((x) => !(x.application_id === appId && x.instalment_no === p.instalment_no)), { ...p, application_id: appId }]);
+    return null;
+  }
+
   const ctx: AdminCtx = {
     apps,
     stats,
@@ -150,7 +231,11 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
     open: setOpenId,
     go: (t, f) => {
       setTab(t);
+      if (t === "customers") setCustomerId(null);
+      if (t === "kyc") setKycId(null);
       if (f) setFilter(f);
+      setNavOpen(false);
+      window.scrollTo({ top: 0 });
     },
     toast: (tone, text) => setMsg({ tone, text }),
     demo,
@@ -160,23 +245,46 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
         setStats(demoStats(next));
         return next;
       }),
+    loans,
+    payments,
+    access,
+    loanRows,
+    customers,
+    today,
+    openCustomer: (id) => {
+      if (openId && !demo) void reload(); // the drawer may have changed loan data
+      setCustomerId(id);
+      setTab("customers");
+      setOpenId(null);
+      window.scrollTo({ top: 0 });
+    },
+    openKyc: (id) => {
+      setKycId(id);
+      setTab("kyc");
+      setOpenId(null);
+      window.scrollTo({ top: 0 });
+    },
+    recordPayment,
+    syncDemoLoan: (appId, loan, list) => {
+      if (!demo) return;
+      if (loan) setLoans((prev) => [...prev.filter((x) => x.application_id !== appId), loan]);
+      setPayments((prev) => [...prev.filter((x) => x.application_id !== appId), ...list.map((x) => ({ ...x, application_id: appId }))]);
+    },
   };
 
   const refundCount = apps.filter((a) => a.refund_status === "pending").length;
   const pendingCount = apps.filter((a) => a.status === "pending").length;
+  const kycCount = apps.filter((a) => a.status === "pending" && a.kyc_status === "pending").length;
+  const overdueLoans = loanRows.filter((l) => l.overdueCount > 0).length;
   const openApp = apps.find((a) => a.id === openId) ?? null;
 
-  const go = (t: Tab) => {
-    setTab(t);
-    setNavOpen(false);
-    window.scrollTo({ top: 0 });
-  };
+  const go = (t: Tab) => ctx.go(t);
 
   return (
     <div className="relative min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
       {/* Desktop sidebar */}
       <aside className="hidden border-r border-white/[0.06] bg-[#05070d]/85 backdrop-blur-xl lg:sticky lg:top-0 lg:block lg:h-screen">
-        <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} refundCount={refundCount} />
+        <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} refundCount={refundCount} overdueLoans={overdueLoans} kycCount={kycCount} />
       </aside>
 
       {/* Mobile sidebar drawer */}
@@ -196,7 +304,7 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
             navOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} refundCount={refundCount} onClose={() => setNavOpen(false)} />
+          <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} refundCount={refundCount} overdueLoans={overdueLoans} kycCount={kycCount} onClose={() => setNavOpen(false)} />
         </aside>
       </div>
 
@@ -219,7 +327,7 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
                 <p className="hidden truncate text-xs text-muted sm:block">{TITLES[tab][1]}</p>
               </div>
             </div>
-            <button type="button" className="btn btn-outline btn-sm shrink-0" onClick={() => void Promise.all([reload(), reloadSettings()])} disabled={refreshing}>
+            <button type="button" className="btn btn-outline btn-sm shrink-0" onClick={() => void reload()} disabled={refreshing}>
               <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
@@ -246,26 +354,58 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
             <Spinner />
           ) : tab === "overview" ? (
             <Overview ctx={ctx} />
+          ) : tab === "customers" ? (
+            <CustomersPanel ctx={ctx} selected={customerId} select={setCustomerId} />
+          ) : tab === "kyc" ? (
+            <KycPanel ctx={ctx} selected={kycId} select={setKycId} />
           ) : tab === "applications" ? (
             <ApplicationsPanel ctx={ctx} filter={filter} setFilter={setFilter} />
+          ) : tab === "loans" ? (
+            <LoansPanel ctx={ctx} />
+          ) : tab === "collections" ? (
+            <CollectionsPanel ctx={ctx} />
+          ) : tab === "fees" ? (
+            <FeesPanel ctx={ctx} />
           ) : tab === "refunds" ? (
             <RefundsPanel ctx={ctx} />
+          ) : tab === "activity" ? (
+            <ActivityPanel ctx={ctx} />
+          ) : tab === "reports" ? (
+            <ReportsPanel ctx={ctx} />
           ) : (
-            <SettingsPanel ctx={ctx} />
+            <TeamPanel ctx={ctx} />
           )}
         </main>
       </div>
 
-      {openApp && <ApplicationDrawer key={openApp.id} app={openApp} ctx={ctx} onClose={() => setOpenId(null)} />}
+      {openApp && (
+        <ApplicationDrawer
+          key={openApp.id}
+          app={openApp}
+          ctx={ctx}
+          onClose={() => {
+            setOpenId(null);
+            // Pick up loan, EMI and document changes made in the drawer
+            if (!demo) void reload();
+          }}
+        />
+      )}
     </div>
   );
 }
 
 const TITLES: Record<Tab, [string, string]> = {
   overview: ["Overview", "Your review queue at a glance"],
-  applications: ["Applications", "Review documents, payments and decide"],
+  customers: ["Customers", "Everyone who has applied, with their applications and loans"],
+  applications: ["Applications", "Check payments and decide"],
+  kyc: ["KYC verification", "Check identity and address documents before the decision"],
+  loans: ["Loans", "Every approved loan, its repayment and what is outstanding"],
+  collections: ["Collections", "EMIs overdue and due soon; record payments and send reminders"],
+  fees: ["Fee payments", "Every ₹299 application fee: UTRs, verification and refunds"],
   refunds: ["Refunds", "Send and record refunds for declined applications"],
-  settings: ["Settings", "Lender disclosure, grievance contact and payment details"],
+  activity: ["Activity", "Who did what, and when"],
+  reports: ["Reports", "Totals for any period, and CSV exports"],
+  team: ["Admins", "Who can sign in to this console"],
 };
 
 function AdminSidebar({
@@ -275,6 +415,8 @@ function AdminSidebar({
   demo,
   pendingCount,
   refundCount,
+  overdueLoans,
+  kycCount,
   onClose,
 }: {
   tab: Tab;
@@ -283,6 +425,8 @@ function AdminSidebar({
   demo: boolean;
   pendingCount: number;
   refundCount: number;
+  overdueLoans: number;
+  kycCount: number;
   onClose?: () => void;
 }) {
   const { site, payment, disclosed } = useSettings();
@@ -333,7 +477,7 @@ function AdminSidebar({
 
       <div className="flex-1 overflow-y-auto px-3 py-4">
         {/* Status */}
-        <button type="button" onClick={() => go("settings")} className="well mb-5 block w-full p-3.5 text-left transition hover:border-white/15">
+        <div className="well mb-5 block w-full p-3.5 text-left">
           {live ? (
             <>
               <span className="flex items-center gap-2 text-xs font-semibold text-ok">
@@ -349,26 +493,40 @@ function AdminSidebar({
             <>
               <span className="flex items-center justify-between text-xs font-semibold text-gold-ink">
                 Setup {done} of {steps.length}
-                <span className="text-faint">Finish →</span>
               </span>
               <span className="mt-2 block h-1 overflow-hidden rounded-full bg-white/[0.07]">
                 <span className="block h-full rounded-full bg-gradient-to-r from-gold to-brand" style={{ width: `${(done / steps.length) * 100}%` }} />
               </span>
-              <span className="mt-2 block text-[0.7rem] leading-snug text-muted">Applications are closed until setup is complete.</span>
+              <span className="mt-2 block text-[0.7rem] leading-snug text-muted">Applications are closed until src/config/site.ts is filled in.</span>
             </>
           )}
-        </button>
+        </div>
 
         <p className="px-2.5 pb-2 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Workspace</p>
-        <nav className="space-y-1" aria-label="Admin">
+        <nav className="space-y-1" aria-label="Workspace">
           <Item t="overview" label="Overview" icon={LayoutDashboard} />
+          <Item t="customers" label="Customers" icon={Users} />
+          <Item t="kyc" label="KYC verification" icon={ScanFace} badge={kycCount} gold />
           <Item t="applications" label="Applications" icon={FileStack} badge={pendingCount} />
+        </nav>
+
+        <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Lending</p>
+        <nav className="space-y-1" aria-label="Lending">
+          <Item t="loans" label="Loans" icon={Landmark} />
+          <Item t="collections" label="Collections" icon={CalendarClock} badge={overdueLoans} gold />
+        </nav>
+
+        <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Money</p>
+        <nav className="space-y-1" aria-label="Money">
+          <Item t="fees" label="Fee payments" icon={ReceiptIndianRupee} />
           <Item t="refunds" label="Refunds" icon={RotateCcw} badge={refundCount} gold />
         </nav>
 
-        <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Configure</p>
-        <nav className="space-y-1" aria-label="Configuration">
-          <Item t="settings" label="Settings" icon={Settings2} />
+        <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Admin</p>
+        <nav className="space-y-1" aria-label="Admin">
+          <Item t="reports" label="Reports" icon={BarChart3} />
+          <Item t="activity" label="Activity" icon={History} />
+          <Item t="team" label="Admins" icon={UserCog} />
           <Link
             href="/"
             target="_blank"

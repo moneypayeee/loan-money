@@ -35,3 +35,18 @@ export function errorText(error: unknown) {
 
 export const appRef = (a: { ref_code: string | null; id: string }) =>
   a.ref_code ?? "MP-" + a.id.replace(/-/g, "").slice(0, 8).toUpperCase();
+
+/** Today's date in India (YYYY-MM-DD), so "due today" doesn't flip at 5:30 am. */
+export const todayIST = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+/** Whole days from a to b (both YYYY-MM-DD). */
+export function daysBetween(a: string, b: string) {
+  return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
+}
+
+/** Short Indian number: 1,25,000 → ₹1.25 L, 2,40,00,000 → ₹2.4 Cr. */
+export function rupeesShort(n: number) {
+  if (Math.abs(n) >= 1e7) return `₹${+(n / 1e7).toFixed(2)} Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${+(n / 1e5).toFixed(2)} L`;
+  return rupees(n);
+}

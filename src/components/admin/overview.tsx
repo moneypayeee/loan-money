@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, CheckCircle2, Circle, Clock3, FileSearch, RotateCcw, ThumbsUp, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Clock3, FileSearch, RotateCcw, ThumbsUp, XCircle } from "lucide-react";
 import { useSettings } from "@/lib/settings-context";
 import { formatPhone } from "@/lib/phone-auth";
-import { addDays, rupees, timeAgo } from "@/lib/format";
+import { addDays, rupees, rupeesShort, timeAgo } from "@/lib/format";
 import type { AdminCtx } from "./admin-console";
+import { plural, Stat } from "./kit";
 
 export function Overview({ ctx }: { ctx: AdminCtx }) {
   const { stats, apps } = ctx;
@@ -38,9 +39,9 @@ export function Overview({ ctx }: { ctx: AdminCtx }) {
               </li>
             ))}
           </ul>
-          <button type="button" className="btn btn-dark btn-sm mt-5" onClick={() => ctx.go("settings")}>
-            Open settings <ArrowRight size={14} />
-          </button>
+          <p className="mt-5 text-sm text-muted">
+            Fill these in <span className="font-mono text-ink-2">src/config/site.ts</span>, then run <span className="font-mono text-ink-2">npm run sync-settings</span>.
+          </p>
         </section>
       )}
 
@@ -57,6 +58,8 @@ export function Overview({ ctx }: { ctx: AdminCtx }) {
           onClick={() => ctx.go("refunds")}
         />
       </section>
+
+      <LoanBook ctx={ctx} />
 
       <KycPending ctx={ctx} />
 
@@ -172,7 +175,7 @@ function requiredDocs(category: string) {
 function KycPending({ ctx }: { ctx: AdminCtx }) {
   const now = Date.now();
   const list = ctx.apps
-    .filter((a) => a.status === "pending" && !a.kyc_verified)
+    .filter((a) => a.status === "pending" && a.kyc_status === "pending")
     .sort((x, y) => x.created_at.localeCompare(y.created_at));
   const shown = list.slice(0, 6);
 
@@ -190,7 +193,7 @@ function KycPending({ ctx }: { ctx: AdminCtx }) {
           <span className={`chip ml-1 ${list.length ? "border-warn/30 bg-warn-soft text-warn" : "border-ok/30 bg-ok-soft text-ok"}`}>{list.length}</span>
         </div>
         {list.length > shown.length && (
-          <button type="button" className="text-sm font-semibold text-gold hover:underline" onClick={() => ctx.go("applications", "pending")}>
+          <button type="button" className="text-sm font-semibold text-gold hover:underline" onClick={() => ctx.go("kyc")}>
             View all {list.length}
           </button>
         )}
@@ -226,7 +229,7 @@ function KycPending({ ctx }: { ctx: AdminCtx }) {
                   ))}
                 </div>
                 <span className={`hidden w-20 shrink-0 text-right text-xs sm:block ${late ? "font-semibold text-bad" : "text-muted"}`}>{timeAgo(a.created_at)}</span>
-                <button type="button" className="btn btn-outline btn-sm shrink-0" onClick={() => ctx.open(a.id)}>
+                <button type="button" className="btn btn-outline btn-sm shrink-0" onClick={() => ctx.openKyc(a.id)}>
                   <span className="sm:hidden">Review</span>
                   <span className="hidden sm:inline">Review KYC</span>
                 </button>
@@ -239,3 +242,34 @@ function KycPending({ ctx }: { ctx: AdminCtx }) {
   );
 }
 
+
+/** Loan book at a glance: links into Loans and Collections. */
+function LoanBook({ ctx }: { ctx: AdminCtx }) {
+  const open = ctx.loanRows.filter((l) => l.loan.status !== "closed");
+  const overdue = open.filter((l) => l.overdueCount > 0);
+  const outstanding = open.reduce((s, l) => s + l.outstanding, 0);
+  const overdueAmt = overdue.reduce((s, l) => s + l.overdueAmount, 0);
+  const in7 = open.flatMap((l) => l.rows.filter((r) => r.status !== "paid" && r.date >= ctx.today && Date.parse(r.date) - Date.parse(ctx.today) <= 7 * 864e5));
+  const month = ctx.today.slice(0, 7);
+  const collected = ctx.payments.filter((p) => p.paid_on.slice(0, 7) === month).reduce((s, p) => s + p.amount, 0);
+  const noLoan = ctx.apps.filter((a) => a.status === "accepted" && !ctx.loanRows.some((l) => l.app.id === a.id)).length;
+  if (!ctx.loanRows.length && !noLoan) return null;
+  return (
+    <section>
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <h2 className="display text-lg">Loan book</h2>
+        {noLoan > 0 && (
+          <button type="button" className="text-sm font-semibold text-gold hover:underline" onClick={() => ctx.go("loans")}>
+            {noLoan} approved without loan details
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <Stat label="Outstanding" value={rupeesShort(outstanding)} foot={plural(open.length, "open loan")} tone="gold" onClick={() => ctx.go("loans")} />
+        <Stat label="Overdue" value={rupeesShort(overdueAmt)} foot={`${plural(overdue.length, "borrower")} late`} tone={overdue.length ? "bad" : "ok"} onClick={() => ctx.go("collections")} />
+        <Stat label="Due next 7 days" value={rupeesShort(in7.reduce((s, r) => s + r.emi, 0))} foot={plural(in7.length, "EMI")} onClick={() => ctx.go("collections")} />
+        <Stat label="Collected this month" value={rupeesShort(collected)} foot="EMIs recorded as paid" tone="ok" onClick={() => ctx.go("reports")} />
+      </div>
+    </section>
+  );
+}

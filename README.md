@@ -7,11 +7,12 @@ with a confirmed payment are refunded.
 
 ## Rules enforced in the database (not just the UI)
 - **Lender disclosure first.** Applications are refused until a lender name and RBI registration number are
-  published in Admin → Settings. The disclosure appears on every page and is saved with each application.
+  set in `src/config/site.ts`. The disclosure appears on every page and is saved with each application.
 - **Refund on decline.** Declining an application whose ₹299 payment was confirmed puts it in the refund queue.
   It stays there, with a due date, until a refund UTR is recorded. If the payment can't be found, the applicant
   is told why and pointed to the grievance officer.
-- Approval requires payment confirmed and KYC reviewed. Declining requires a note to the applicant.
+- Approval requires KYC verified (KYC tab) and payment confirmed. Declining requires a note to the applicant.
+- KYC has its own status: to verify → verified, problem found, or new document requested. A requested document is re-uploaded by the applicant on their application page, which puts it back in the KYC queue.
 - One application under review per user. A UTR or payment screenshot can be used only once.
 - All writes go through validated `security definer` RPCs. Applicants can read only their own rows, KYC and documents.
 - Every step is written to `application_events` and shown as a timeline to the applicant and the admin.
@@ -32,16 +33,18 @@ npm run dev
    address like `m9876543210@phone.moneypay.invalid` (never emailed), so no SMS provider is needed.
    The user's real email is optional and saved separately.
 3. Auth → URL Configuration: set Site URL (e.g. `http://localhost:3000`).
-4. Create your admin account on `/apply` (mobile number + password), then promote it:
+4. Create your admin account (email + password): Supabase → **Authentication → Users → Add user → Create new user**,
+   enter the email and password, tick **Auto Confirm User**. Then promote it in the SQL Editor:
    ```sql
    insert into public.admin_users(user_id)
-   select id from auth.users where raw_user_meta_data->>'phone' = '9876543210'
+   select id from auth.users where email = 'admin@yourcompany.com'
    on conflict do nothing;
    ```
-5. Sign in at `/admin/login` (mobile number or email), then open **Settings**:
+5. Fill in **`src/config/site.ts`** (there is no Settings page; these values are fixed in code):
    - Lender legal name, type, RBI registration number, grievance officer name + email, refund window.
-   - Payee name, UPI ID and QR image for collecting the fee.
-6. The Overview tab shows a setup checklist until both are done. After that, applications are open.
+   - Payee name and UPI ID, and put the payment QR image in `public/` and set `qr_path` to its file name.
+6. Run **`npm run sync-settings`** to copy them into the database (it checks them when accepting applications).
+   Re-run it after every edit of `src/config/site.ts`. It tells you what is still missing; once complete, applications are open.
 
 ### Upgrading from the previous version
 Re-run `supabase/schema.sql`. It drops the old `submit_application*` / `review_application*` RPCs, adds the refund,
@@ -54,19 +57,40 @@ them to the account that paid (the UTR is shown).
 |---|---|
 | `/` | Landing page |
 | `/login` | Login hub, all by **mobile number + password**: **My loan** (approved borrowers, admin-generated password) and **Track application** (applicants) |
-| `/borrower` | Borrower dashboard: loan amount, EMI, rate, tenure, next EMI, repayment schedule (CSV), lender, history |
+| `/borrower` | Borrower dashboard. **One login per mobile number**: with several loans the borrower first sees a "My loans" list, then each loan's amount, EMI, schedule (CSV), documents and history |
 | `/apply` | Sign up / sign in, 4-step application wizard, application timeline & refund status |
 | `/admin/login` | Admin sign-in (admins only; no sign-up). `/admin` redirects here when signed out |
-| `/admin` | Admin console: overview, review queue + review drawer, refunds, settings |
-| `/how-it-works`, `/questions`, `/terms`, `/privacy` | Content and legal pages (read lender and refund details live from settings) |
+| `/admin` | Admin console (see below) |
+| `/how-it-works`, `/questions`, `/terms`, `/privacy` | Content and legal pages (read lender and refund details from `src/config/site.ts`) |
 | `/account/reset` | Password reset landing page |
+
+## Admin console tabs
+| Tab | What it's for |
+|---|---|
+| **Overview** | Review queue, refunds due, loan book at a glance, KYC pending, 14-day chart, what needs attention |
+| **Customers** | Everyone who has applied (one row per account). Profile: contact (call / WhatsApp / email), all applications, loans with repayment progress and borrower-login status, fee payments |
+| **KYC verification** | Queue of applications whose documents need checking, oldest first. Each one shows the applicant's details, document previews and a checklist. Result: **Verified**, **Ask for new document** (choose which; the applicant re-uploads it) or **Problem found** |
+| **Applications** | Payment check and approve / decline (opens the review drawer; approval needs KYC verified first); CSV export |
+| **Loans** | Every loan: EMIs paid, outstanding principal, next due, days past due; filters for overdue, needs setup, no borrower login; CSV export |
+| **Collections** | EMIs overdue / due today / next 7 and 30 days, overdue ageing (1–30, 31–60, 61–90, 90+ days). Mark an EMI paid in place; WhatsApp reminder with a ready message |
+| **Fee payments** | Every ₹299 UTR with its status (to check, received, not found, refund due, refunded) by month, for matching against the bank statement |
+| **Refunds** | Refunds to send and recently refunded |
+| **Reports** | Any period (this month, last month, 3 months, financial year, custom): applications, approval rate, fees kept, disbursed, EMIs collected, month-by-month table, by-category approval rate, CSV downloads |
+| **Activity** | Audit log of every action across all applications, with the admin who did it |
+| **Admins** | Who can sign in to the console, and when each last signed in (read-only) |
+
+To add an admin, create the user in Supabase → Authentication and promote them with the SQL in Setup step 4.
+To remove one: `delete from public.admin_users where user_id = (select id from auth.users where email = '...');`
+
+WhatsApp buttons open `wa.me` with a pre-filled message; nothing is sent until you tap Send in WhatsApp.
 
 ## Code map
 - `supabase/schema.sql` — tables, RLS, storage buckets/policies, RPCs
-- `src/lib/settings-context.tsx` — public lender + payment settings shared by every page
+- `src/lib/settings-context.tsx` — exposes the fixed lender + payment details from `src/config/site.ts` to every page
 - `src/lib/application-validation.ts` — client validation mirroring the `submit_loan_application` RPC
 - `src/components/apply/*` — wizard, application card + timeline, portal
-- `src/components/admin/*` — console shell, overview, applications table, review drawer, refunds, settings
+- `src/components/admin/*` — console shell and one file per tab; `portfolio.ts` derives loan rows (EMI status, days past due) and customers from the loaded data; `kit.tsx` holds shared tiles, filters and buttons
+- `src/lib/csv.ts` — Excel-safe CSV export used by every tab
 - `src/app/globals.css` — design tokens (`@theme`) and component classes
 
 ## Checks

@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
-import { rupees, timeAgo } from "@/lib/format";
+import { appRef, rupees, timeAgo } from "@/lib/format";
+import { downloadCsv } from "@/lib/csv";
 import { RefundBadge, StatusBadge } from "../ui";
 import { formatPhone } from "@/lib/phone-auth";
 import type { AdminCtx } from "./admin-console";
+import { ExportButton, Pill } from "./kit";
+import { KYC_STATUS } from "./kyc-panel";
 
 const FILTERS = [
   ["pending", "Under review"],
@@ -23,11 +26,19 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
     if (filter === "pending") list.reverse();
     if (!needle) return list;
     return list.filter((a) =>
-      [a.full_name, a.phone, a.transaction_id, a.refund_upi_id ?? ""].some((s) => s.toLowerCase().includes(needle)),
+      [a.full_name, a.phone, a.transaction_id, a.refund_upi_id ?? "", appRef(a), a.contact_email ?? ""].some((s) => s.toLowerCase().includes(needle)),
     );
   }, [ctx.apps, filter, q]);
 
   const count = (f: string) => ctx.apps.filter((a) => f === "all" || a.status === f).length;
+
+  function exportCsv() {
+    downloadCsv(
+      `applications-${filter}-${ctx.today}.csv`,
+      ["Submitted", "Reference", "Name", "Mobile", "Email", "Category", "Requested", "UTR", "Status", "Payment confirmed", "KYC", "Decided at", "Refund", "Note to applicant"],
+      rows.map((a) => [a.created_at, appRef(a), a.full_name, a.phone, a.contact_email ?? "", a.category, a.requested_amount, a.transaction_id, a.status, a.payment_verified ? "Yes" : "No", KYC_STATUS[a.kyc_status].label, a.reviewed_at ?? "", a.refund_status, a.admin_note]),
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -44,9 +55,12 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
             </button>
           ))}
         </div>
-        <div className="relative w-full lg:w-80">
-          <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
-          <input className="!pl-10" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile or UTR" aria-label="Search applications" />
+        <div className="flex gap-2">
+          <div className="relative w-full lg:w-80">
+            <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
+            <input className="!pl-10" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile, UTR or MP-" aria-label="Search applications" />
+          </div>
+          <ExportButton onClick={exportCsv} disabled={!rows.length} label="CSV" />
         </div>
       </div>
 
@@ -85,6 +99,7 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
                       <td className="px-5 py-3.5">
                         <div className="flex flex-wrap gap-1.5">
                           <StatusBadge status={a.status} />
+                          {a.status === "pending" && <Pill tone={KYC_STATUS[a.kyc_status].tone}>{KYC_STATUS[a.kyc_status].label}</Pill>}
                           <RefundBadge status={a.refund_status} />
                         </div>
                       </td>
@@ -113,6 +128,7 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <StatusBadge status={a.status} />
+                      {a.status === "pending" && <Pill tone={KYC_STATUS[a.kyc_status].tone}>{KYC_STATUS[a.kyc_status].label}</Pill>}
                       <RefundBadge status={a.refund_status} />
                     </div>
                   </button>

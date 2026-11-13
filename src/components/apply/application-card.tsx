@@ -4,6 +4,7 @@ import { Check, Clock3, RotateCcw, X, CircleSlash } from "lucide-react";
 import type { Application, ApplicationEvent, SiteSettings } from "@/lib/types";
 import { addDays, dateOnly, dateTime, rupees } from "@/lib/format";
 import { RefundBadge, StatusBadge } from "../ui";
+import { KycReupload } from "./kyc-reupload";
 
 type Step = { title: string; detail: string; state: "done" | "active" | "todo" | "bad"; at?: string; icon?: "refund" | "no" };
 
@@ -12,8 +13,20 @@ export function buildTimeline(a: Application, events: ApplicationEvent[], refund
   const steps: Step[] = [{ title: "Application submitted", detail: `₹${a.fee} fee · UTR ${a.transaction_id}`, state: "done", at: a.created_at }];
 
   if (a.status === "pending") {
-    steps.push({ title: "Documents & payment check", detail: "Our team is verifying your KYC documents and payment.", state: "active" });
-    steps.push({ title: "Decision", detail: `Expected by ${dateOnly(addDays(a.created_at, 2))}`, state: "todo" });
+    const reupload = [...events].reverse().find((e) => e.kind === "kyc_resubmitted");
+    if (a.kyc_status === "resubmit") {
+      steps.push({ title: "New document needed", detail: a.kyc_note || "Please upload the document again (see above).", state: "bad", at: a.kyc_reviewed_at ?? undefined });
+    } else if (a.kyc_status === "verified") {
+      steps.push({ title: "Documents verified", detail: "Your KYC documents have been checked.", state: "done", at: a.kyc_reviewed_at ?? undefined });
+    } else {
+      steps.push({
+        title: "Documents check",
+        detail: reupload ? "Thanks for the new document. We're checking it now." : "Our team is checking your KYC documents.",
+        state: "active",
+        at: reupload?.created_at,
+      });
+    }
+    steps.push({ title: "Payment check & decision", detail: `Expected by ${dateOnly(addDays(a.created_at, 2))}`, state: a.kyc_status === "verified" ? "active" : "todo" });
     return steps;
   }
 
@@ -79,7 +92,22 @@ export function Timeline({ steps }: { steps: Step[] }) {
   );
 }
 
-export function ApplicationCard({ a, events, site, highlight = false }: { a: Application; events: ApplicationEvent[]; site: SiteSettings | null; highlight?: boolean }) {
+export function ApplicationCard({
+  a,
+  events,
+  site,
+  highlight = false,
+  userId,
+  onChanged,
+}: {
+  a: Application;
+  events: ApplicationEvent[];
+  site: SiteSettings | null;
+  highlight?: boolean;
+  /** Needed to upload a requested document (applicant view only). */
+  userId?: string;
+  onChanged?: () => void;
+}) {
   const steps = buildTimeline(a, events, site?.refund_days ?? 7);
   return (
     <article className={`card overflow-hidden ${highlight ? "card-glow" : ""}`}>
@@ -96,6 +124,7 @@ export function ApplicationCard({ a, events, site, highlight = false }: { a: App
           <RefundBadge status={a.refund_status} />
         </div>
       </div>
+      {a.status === "pending" && a.kyc_status === "resubmit" && userId && onChanged && <KycReupload a={a} userId={userId} onDone={onChanged} />}
       <div className="grid gap-8 px-5 py-6 sm:px-7 md:grid-cols-[1fr_260px]">
         <Timeline steps={steps} />
         <dl className="well space-y-3 self-start p-4 text-sm">

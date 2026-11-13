@@ -46,11 +46,3 @@ export function accountLabel(user: { email?: string | null; user_metadata?: Reco
   }
   return user.email ?? "";
 }
-
-/** Admin login accepts either a mobile number or an email address. */
-export function loginIdentifierToEmail(input: string): string | null {
-  const v = input.trim();
-  if (EMAIL_RE.test(v)) return v;
-  if (isValidPhone(v)) return phoneToAuthEmail(v);
-  return null;
-}
