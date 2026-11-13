@@ -69,7 +69,7 @@ export default function ResetPasswordPage() {
             </button>
             {msg?.tone === "ok" && (
               <Link href="/apply" className="btn btn-outline w-full">
-                Go to my applications
+                Go to my applications.
               </Link>
             )}
           </form>
