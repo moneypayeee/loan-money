@@ -15,32 +15,31 @@
 import type { PaymentSettings, SiteSettings } from "../lib/types";
 
 export const SITE: SiteSettings = {
-  company_name: "Money Pay",
-  company_address: "123 Sample Street, Bengaluru, Karnataka 560001",
+  company_name: "MoneyPayee",
+  company_address: "",
 
-  // The RBI-regulated lender that issues the loans (shown on every page).
-  lender_name: "Sample Finance Pvt Ltd",
+  // Broker platform: loans are issued by RBI-regulated banking and NBFC partners.
+  lender_name: "RBI-Registered Banking & Lending Partners",
   lender_type: "NBFC", // "NBFC" | "Bank" | "Other RBI-regulated entity"
-  lender_reg_no: "N-00.00000",
-  lender_website: "https://www.example.com",
+  lender_reg_no: "",
+  lender_website: "",
 
-  support_email: "support@example.com",
-  support_phone: "+91 90000 00000",
+  support_email: "",
+  support_phone: "",
 
-  grievance_officer: "Sample Grievance Officer",
-  grievance_email: "grievance@example.com",
-  grievance_phone: "+91 90000 00001",
+  grievance_officer: "",
+  grievance_email: "",
+  grievance_phone: "",
 
-  // Days within which a declined applicant's ₹299 is refunded (1–30).
+  // Standard review turnaround window (days).
   refund_days: 7,
 };
 
 export const PAYMENT: PaymentSettings = {
-  payee_name: "Sample Payee",
-  upi_id: "sample@upi",
+  payee_name: "MoneyPayee",
+  upi_id: "",
   fee: 299,
-  // QR image file inside public/. When you add your real QR, give it a new name
-  // (e.g. payment-qr.png) and update this path, so browsers don't show the old one.
+  // QR image file inside public/.
   qr_path: "payment-qr.svg",
 };
 

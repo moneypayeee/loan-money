@@ -1,17 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeft, ChevronRight, KeyRound, Mail, MessageCircle, Phone } from "lucide-react";
+import { ArrowLeft, ChevronRight, Mail, MessageCircle, Phone } from "lucide-react";
 import { appRef, dateOnly, rupees, timeAgo } from "@/lib/format";
 import { formatPhone } from "@/lib/phone-auth";
 import { downloadCsv } from "@/lib/csv";
 import { useSettings } from "@/lib/settings-context";
-import { RefundBadge, StatusBadge } from "../ui";
+import { StatusBadge } from "../ui";
 import type { AdminCtx } from "./admin-console";
-import { Bar, Empty, ExportButton, initials, Pill, plural, SearchBox, Segmented, Stat } from "./kit";
-import { CUSTOMER_STATE, dpdBucket, LOAN_STATUS, whatsappLink, type Customer } from "./portfolio";
+import { ApprovalQuickActions, ApprovalShare } from "./approval-share";
+import type { Application } from "@/lib/types";
 
-type Filter = "all" | "borrower" | "overdue" | "in_review" | "repeat";
+/** Latest approved application of a customer (drives the approval + referral message). */
+function latestApproved(apps: Application[]) {
+  return [...apps].filter((a) => a.status === "accepted").sort((x, y) => y.created_at.localeCompare(x.created_at))[0];
+}
+import { Empty, ExportButton, initials, Pill, plural, SearchBox, Segmented, Stat } from "./kit";
+import { CUSTOMER_STATE, LOAN_STATUS, whatsappLink, type Customer } from "./portfolio";
+
+type Filter = "all" | "approved" | "in_review" | "repeat";
 
 export function CustomersPanel({ ctx, selected, select }: { ctx: AdminCtx; selected: string | null; select: (id: string | null) => void }) {
   const customer = selected ? ctx.customers.find((c) => c.id === selected) : null;
@@ -28,8 +35,7 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
 
   const match: Record<Filter, (c: Customer) => boolean> = {
     all: () => true,
-    borrower: (c) => c.state === "borrower" || c.state === "overdue",
-    overdue: (c) => c.state === "overdue",
+    approved: (c) => c.apps.some((a) => a.status === "accepted"),
     in_review: (c) => c.apps.some((a) => a.status === "pending"),
     repeat: (c) => c.apps.length > 1,
   };
@@ -50,13 +56,12 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [all, filter, q]);
 
-  const borrowers = all.filter(match.borrower).length;
-  const overdue = all.filter(match.overdue).length;
+  const approved = all.filter(match.approved).length;
 
   function exportCsv() {
     downloadCsv(
       `customers-${ctx.today}.csv`,
-      ["Name", "Mobile", "Email", "Category", "Status", "Applications", "Loans", "Borrowed", "Outstanding", "Overdue amount", "Days past due", "Fees paid", "First applied", "Last activity"],
+      ["Name", "Mobile", "Email", "Category", "Status", "Applications", "Loans", "Sanctioned by bank", "Fees paid", "First applied", "Last activity"],
       rows.map((c) => [
         c.name,
         c.phone,
@@ -66,9 +71,6 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
         c.apps.length,
         c.loans.length,
         c.borrowed,
-        c.outstanding,
-        c.overdueAmount,
-        c.maxDpd,
         c.feesPaid,
         c.firstSeen.slice(0, 10),
         c.lastActivity.slice(0, 10),
@@ -80,8 +82,8 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
     <div className="space-y-5">
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Stat label="Customers" value={all.length.toLocaleString("en-IN")} foot="Everyone who has applied" />
-        <Stat label="Borrowers" value={borrowers.toLocaleString("en-IN")} foot="With an open loan" tone="ok" onClick={() => setFilter("borrower")} />
-        <Stat label="Overdue" value={overdue.toLocaleString("en-IN")} foot="At least one EMI late" tone={overdue ? "bad" : "default"} onClick={() => setFilter("overdue")} />
+        <Stat label="Approved" value={approved.toLocaleString("en-IN")} foot="At least one approved application" tone="ok" onClick={() => setFilter("approved")} />
+        <Stat label="In review" value={all.filter(match.in_review).length.toLocaleString("en-IN")} foot="Waiting for a decision" tone="warn" onClick={() => setFilter("in_review")} />
         <Stat label="Repeat applicants" value={all.filter(match.repeat).length.toLocaleString("en-IN")} foot="More than one application" onClick={() => setFilter("repeat")} />
       </section>
 
@@ -92,8 +94,7 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
           onChange={setFilter}
           options={[
             ["all", "All", all.length],
-            ["borrower", "Borrowers", borrowers],
-            ["overdue", "Overdue", overdue],
+            ["approved", "Approved", approved],
             ["in_review", "In review", all.filter(match.in_review).length],
             ["repeat", "Repeat", all.filter(match.repeat).length],
           ]}
@@ -109,15 +110,16 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
           <Empty>{q ? "No customers match your search." : "No customers here yet."}</Empty>
         ) : (
           <>
-            <table className="hidden w-full text-sm lg:table">
+            <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="border-b hairline bg-white/[0.02] text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Customer</th>
                   <th className="px-5 py-3 font-semibold">Status</th>
                   <th className="px-5 py-3 text-right font-semibold">Applications</th>
-                  <th className="px-5 py-3 text-right font-semibold">Borrowed</th>
-                  <th className="px-5 py-3 text-right font-semibold">Outstanding</th>
+                  <th className="px-5 py-3 text-right font-semibold">Sanctioned</th>
                   <th className="px-5 py-3 font-semibold">Last activity</th>
+                  <th className="px-5 py-3 font-semibold">Send approval</th>
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -142,8 +144,10 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
                     </td>
                     <td className="px-5 py-3.5 text-right tabular-nums">{c.apps.length}</td>
                     <td className="px-5 py-3.5 text-right font-semibold tabular-nums">{c.borrowed ? rupees(c.borrowed) : "—"}</td>
-                    <td className={`px-5 py-3.5 text-right tabular-nums ${c.overdueAmount ? "font-semibold text-bad" : ""}`}>{c.outstanding ? rupees(c.outstanding) : "—"}</td>
                     <td className="px-5 py-3.5 text-xs text-muted">{timeAgo(c.lastActivity)}</td>
+                    <td className="whitespace-nowrap px-5 py-3.5">
+                      <ApprovalQuickActions app={latestApproved(c.apps)} ctx={ctx} email={c.email} />
+                    </td>
                     <td className="pr-4 text-faint">
                       <ChevronRight size={16} />
                     </td>
@@ -151,15 +155,16 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
                 ))}
               </tbody>
             </table>
+            </div>
             <ul className="divide-y divide-line lg:hidden">
               {rows.map((c) => (
-                <li key={c.id}>
-                  <button type="button" onClick={() => select(c.id)} className="flex w-full items-center gap-3 px-4 py-4 text-left">
+                <li key={c.id} className="px-4 py-4">
+                  <button type="button" onClick={() => select(c.id)} className="flex w-full items-center gap-3 text-left">
                     <Avatar name={c.name} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <p className="truncate font-semibold">{c.name}</p>
-                        {c.outstanding > 0 && <p className={`shrink-0 text-sm font-semibold ${c.overdueAmount ? "text-bad" : ""}`}>{rupees(c.outstanding)}</p>}
+                        {c.borrowed > 0 && <p className="shrink-0 text-sm font-semibold">{rupees(c.borrowed)}</p>}
                       </div>
                       <p className="truncate text-xs text-muted">
                         {formatPhone(c.phone)} · {plural(c.apps.length, "application")}
@@ -168,6 +173,11 @@ function CustomerList({ ctx, select }: { ctx: AdminCtx; select: (id: string) => 
                     </div>
                     <ChevronRight size={16} className="shrink-0 text-faint" />
                   </button>
+                  {latestApproved(c.apps) && (
+                    <div className="mt-3 pl-12">
+                      <ApprovalQuickActions app={latestApproved(c.apps)} ctx={ctx} email={c.email} />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -191,6 +201,8 @@ function CustomerProfile({ c, ctx, back }: { c: Customer; ctx: AdminCtx; back: (
   const company = site?.company_name ?? "Money Pay";
   const hello = `Hello ${c.name.split(" ")[0]}, this is ${company}.`;
   const fees = c.apps.filter((a) => a.payment_verified);
+  // Latest approved application: drives the "approval + referral link" message
+  const approvedApp = latestApproved(c.apps);
 
   return (
     <div className="space-y-5">
@@ -230,70 +242,45 @@ function CustomerProfile({ c, ctx, back }: { c: Customer; ctx: AdminCtx; back: (
             )}
           </div>
         </div>
+        {approvedApp && (
+          <div className="mt-5">
+            <ApprovalShare app={approvedApp} ctx={ctx} email={c.email} />
+          </div>
+        )}
       </section>
 
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-3">
         <Stat label="Applications" value={String(c.apps.length)} foot={`${c.apps.filter((a) => a.status === "accepted").length} approved`} />
-        <Stat label="Total borrowed" value={c.borrowed ? rupees(c.borrowed) : "—"} foot={plural(c.loans.length, "loan")} />
-        <Stat label="Outstanding" value={c.outstanding ? rupees(c.outstanding) : "—"} foot="Principal still to repay" />
-        <Stat
-          label="Overdue"
-          value={c.overdueAmount ? rupees(c.overdueAmount) : "—"}
-          foot={c.maxDpd ? `${c.maxDpd} days past due` : "Nothing late"}
-          tone={c.overdueAmount ? "bad" : "ok"}
-        />
+        <Stat label="Sanctioned by bank" value={c.borrowed ? rupees(c.borrowed) : "—"} foot={plural(c.loans.length, "loan")} />
+        <Stat label="Fees paid" value={c.feesPaid ? rupees(c.feesPaid) : "—"} foot="Application fees verified" tone="ok" />
       </section>
 
       {/* Loans */}
       <section className="card overflow-hidden">
         <h3 className="border-b hairline px-5 py-4 font-bold sm:px-6">Loans</h3>
         {c.loans.length === 0 ? (
-          <Empty>No loans yet. Loans appear here once an approved application has loan details saved.</Empty>
+          <Empty>No bank loan recorded yet. Add the bank&rsquo;s sanction details from the approved application.</Empty>
         ) : (
           <ul className="divide-y divide-line">
-            {c.loans.map((l) => {
-              const b = dpdBucket(l.dpd);
-              return (
-                <li key={l.app.id}>
-                  <button type="button" onClick={() => ctx.open(l.app.id)} className="w-full px-5 py-4 text-left transition hover:bg-white/[0.03] sm:px-6">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">
-                          {l.loan.sanctioned_amount ? rupees(l.loan.sanctioned_amount) : "Amount not set"}
-                          <span className="ml-2 font-mono text-xs font-normal text-muted">{l.loan.loan_account_no || appRef(l.app)}</span>
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted">
-                          {l.complete
-                            ? `${Number(l.loan.interest_rate)}% · ${l.loan.tenure_months} months · EMI ${rupees(l.rows[0]?.emi ?? 0)}`
-                            : "Loan terms not complete"}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Pill tone={l.loan.status === "closed" ? "muted" : "info"}>{LOAN_STATUS[l.loan.status]}</Pill>
-                        {l.loan.status !== "closed" && l.complete && <Pill tone={b.tone}>{b.label}</Pill>}
-                        {l.access ? (
-                          <Pill tone="muted">
-                            <KeyRound size={11} /> {l.access.last_login_at ? `Last login ${timeAgo(l.access.last_login_at)}` : "Never logged in"}
-                          </Pill>
-                        ) : (
-                          <Pill tone="warn">
-                            <KeyRound size={11} /> No login issued
-                          </Pill>
-                        )}
-                      </div>
+            {c.loans.map((l) => (
+              <li key={l.app.id}>
+                <button type="button" onClick={() => ctx.open(l.app.id)} className="w-full px-5 py-4 text-left transition hover:bg-white/[0.03] sm:px-6">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">
+                        {l.loan.sanctioned_amount ? rupees(l.loan.sanctioned_amount) : "Amount not set"}
+                        <span className="ml-2 font-mono text-xs font-normal text-muted">{l.loan.loan_account_no || appRef(l.app)}</span>
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {l.loan.interest_rate != null && l.loan.tenure_months ? `${Number(l.loan.interest_rate)}% · ${l.loan.tenure_months} months` : "Terms not recorded"}
+                        {l.loan.disbursed_on ? ` · disbursed ${dateOnly(l.loan.disbursed_on)}` : " · not disbursed yet"}
+                      </p>
                     </div>
-                    {l.complete && (
-                      <div className="mt-3 flex items-center gap-3">
-                        <Bar value={l.paidCount} total={l.total} />
-                        <span className="shrink-0 text-xs text-muted">
-                          {l.paidCount}/{l.total} EMIs · {rupees(l.outstanding)} left
-                        </span>
-                      </div>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
+                    <Pill tone={l.loan.status === "closed" ? "muted" : "info"}>{LOAN_STATUS[l.loan.status]}</Pill>
+                  </div>
+                </button>
+              </li>
+            ))}
           </ul>
         )}
       </section>
@@ -317,7 +304,6 @@ function CustomerProfile({ c, ctx, back }: { c: Customer; ctx: AdminCtx; back: (
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center">
                   <StatusBadge status={a.status} />
-                  <RefundBadge status={a.refund_status} />
                 </div>
                 <ChevronRight size={16} className="shrink-0 text-faint" />
               </button>
@@ -338,8 +324,7 @@ function CustomerProfile({ c, ctx, back }: { c: Customer; ctx: AdminCtx; back: (
                 <tr>
                   <th className="px-5 py-3 font-semibold sm:px-6">Paid</th>
                   <th className="px-5 py-3 font-semibold">UTR</th>
-                  <th className="px-5 py-3 font-semibold">Verified</th>
-                  <th className="px-5 py-3 font-semibold">Refund</th>
+                  <th className="px-5 py-3 font-semibold">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -352,17 +337,6 @@ function CustomerProfile({ c, ctx, back }: { c: Customer; ctx: AdminCtx; back: (
                     <td className="px-5 py-3">
                       {a.status === "pending" ? <Pill tone="warn">Not checked yet</Pill> : a.payment_verified ? <Pill tone="ok">Received</Pill> : <Pill tone="bad">Not found</Pill>}
                     </td>
-                    <td className="px-5 py-3 text-xs">
-                      {a.refund_status === "refunded" ? (
-                        <span>
-                          Sent · <span className="font-mono">{a.refund_reference}</span>
-                        </span>
-                      ) : a.refund_status === "pending" ? (
-                        <span className="font-semibold text-gold">Due to {a.refund_upi_id ?? "paying account"}</span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -370,7 +344,7 @@ function CustomerProfile({ c, ctx, back }: { c: Customer; ctx: AdminCtx; back: (
           </div>
         )}
         <p className="border-t hairline px-5 py-3 text-xs text-muted sm:px-6">
-          {fees.length} confirmed payment{fees.length === 1 ? "" : "s"} · {rupees(c.feesPaid)} kept after refunds
+          {fees.length} confirmed payment{fees.length === 1 ? "" : "s"} · {rupees(c.feesPaid)} total fees confirmed
         </p>
       </section>
     </div>

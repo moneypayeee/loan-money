@@ -1,15 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight, KeyRound } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { appRef, dateOnly, rupees, rupeesShort } from "@/lib/format";
 import { formatPhone } from "@/lib/phone-auth";
 import { downloadCsv } from "@/lib/csv";
 import type { AdminCtx } from "./admin-console";
-import { Bar, Empty, ExportButton, Pill, plural, SearchBox, Segmented, Stat } from "./kit";
-import { dpdBucket, LOAN_STATUS, type LoanRow } from "./portfolio";
+import { Empty, ExportButton, Pill, SearchBox, Segmented, Stat } from "./kit";
+import { LOAN_STATUS, type LoanRow } from "./portfolio";
 
-type Filter = "open" | "overdue" | "setup" | "no_login" | "closed" | "all";
+/**
+ * Broker view of loans: what the partner bank sanctioned and disbursed for each approved
+ * applicant. EMIs and collections are handled by the bank, so they are not tracked here.
+ */
+type Filter = "open" | "setup" | "closed" | "all";
 
 export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
   const [q, setQ] = useState("");
@@ -20,9 +24,7 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
 
   const match: Record<Filter, (l: LoanRow) => boolean> = {
     open: (l) => l.loan.status !== "closed",
-    overdue: (l) => l.overdueCount > 0,
-    setup: (l) => !l.complete || !l.loan.disbursed_on,
-    no_login: (l) => l.loan.status !== "closed" && !l.access,
+    setup: (l) => !l.loan.sanctioned_amount || !l.loan.disbursed_on,
     closed: (l) => l.loan.status === "closed",
     all: () => true,
   };
@@ -38,37 +40,14 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
   }, [all, filter, q]);
 
   const open = all.filter(match.open);
-  const book = open.reduce((s, l) => s + l.outstanding, 0);
-  const disbursed = all.reduce((s, l) => s + (l.loan.disbursed_on ? l.loan.disbursed_amount ?? l.loan.sanctioned_amount ?? 0 : 0), 0);
-  const overdueAmt = all.reduce((s, l) => s + l.overdueAmount, 0);
-  const collected = all.reduce((s, l) => s + l.paidAmount, 0);
+  const sanctioned = all.reduce((s, l) => s + (l.loan.sanctioned_amount ?? 0), 0);
+  const disbursedRows = all.filter((l) => l.loan.disbursed_on);
+  const disbursed = disbursedRows.reduce((s, l) => s + (l.loan.disbursed_amount ?? l.loan.sanctioned_amount ?? 0), 0);
 
   function exportCsv() {
     downloadCsv(
       `loans-${ctx.today}.csv`,
-      [
-        "Reference",
-        "Loan account no",
-        "Borrower",
-        "Mobile",
-        "Status",
-        "Sanctioned",
-        "Rate %",
-        "Tenure (months)",
-        "EMI",
-        "First EMI",
-        "Disbursed on",
-        "Amount credited",
-        "EMIs paid",
-        "EMIs total",
-        "Paid so far",
-        "Outstanding principal",
-        "Overdue EMIs",
-        "Overdue amount",
-        "Days past due",
-        "Next due",
-        "Borrower login",
-      ],
+      ["Reference", "Bank loan account no", "Borrower", "Mobile", "Status", "Sanctioned", "Rate %", "Tenure (months)", "Disbursed on", "Amount credited"],
       rows.map((l) => [
         appRef(l.app),
         l.loan.loan_account_no,
@@ -78,19 +57,8 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
         l.loan.sanctioned_amount,
         l.loan.interest_rate != null ? Number(l.loan.interest_rate) : "",
         l.loan.tenure_months,
-        l.rows[0]?.emi ?? l.loan.emi_amount,
-        l.loan.first_emi_date,
         l.loan.disbursed_on,
         l.loan.disbursed_amount,
-        l.paidCount,
-        l.total,
-        l.paidAmount,
-        l.outstanding,
-        l.overdueCount,
-        l.overdueAmount,
-        l.dpd,
-        l.next?.date ?? "",
-        l.access ? (l.access.last_login_at ? `Last ${l.access.last_login_at.slice(0, 10)}` : "Issued, never used") : "Not issued",
       ]),
     );
   }
@@ -98,15 +66,15 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
   return (
     <div className="space-y-5">
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <Stat label="Open loans" value={open.length.toLocaleString("en-IN")} foot={`${all.length} in total`} onClick={() => setFilter("open")} />
-        <Stat label="Outstanding" value={rupeesShort(book)} foot={`${rupeesShort(disbursed)} disbursed`} tone="gold" />
-        <Stat label="Collected" value={rupeesShort(collected)} foot="EMIs recorded as paid" tone="ok" />
+        <Stat label="Open loans" value={open.length.toLocaleString("en-IN")} foot={`${all.length} recorded in total`} onClick={() => setFilter("open")} />
+        <Stat label="Sanctioned by banks" value={rupeesShort(sanctioned)} foot="Across all recorded loans" tone="gold" />
+        <Stat label="Disbursed" value={rupeesShort(disbursed)} foot={`${disbursedRows.length} loans credited`} tone="ok" />
         <Stat
-          label="Overdue"
-          value={rupeesShort(overdueAmt)}
-          foot={`${plural(all.filter(match.overdue).length, "loan")} with late EMIs`}
-          tone={overdueAmt ? "bad" : "default"}
-          onClick={() => setFilter("overdue")}
+          label="Details missing"
+          value={String(missing.length + all.filter(match.setup).length)}
+          foot="Approved, no sanction / disbursal recorded"
+          tone={missing.length ? "warn" : "default"}
+          onClick={() => setFilter("setup")}
         />
       </section>
 
@@ -114,7 +82,7 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
         <div className="card flex flex-col gap-3 border-gold/30 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <p className="text-sm">
             <strong>{missing.length} approved application{missing.length === 1 ? "" : "s"}</strong>{" "}
-            <span className="text-muted">have no loan details yet, so they aren&rsquo;t on the loan book.</span>
+            <span className="text-muted">have no loan details from the bank yet.</span>
           </p>
           <div className="flex flex-wrap gap-2">
             {missing.slice(0, 3).map((a) => (
@@ -133,9 +101,7 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
           onChange={setFilter}
           options={[
             ["open", "Open", open.length],
-            ["overdue", "Overdue", all.filter(match.overdue).length],
-            ["setup", "Needs setup", all.filter(match.setup).length],
-            ["no_login", "No login", all.filter(match.no_login).length],
+            ["setup", "Details missing", all.filter(match.setup).length],
             ["closed", "Closed", all.filter(match.closed).length],
             ["all", "All", all.length],
           ]}
@@ -148,17 +114,15 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
 
       <div className="card overflow-hidden">
         {rows.length === 0 ? (
-          <Empty>{q ? "No loans match your search." : filter === "overdue" ? "No overdue EMIs. Everyone is on time." : "No loans here."}</Empty>
+          <Empty>{q ? "No loans match your search." : "No loans here."}</Empty>
         ) : (
           <>
-            <table className="hidden w-full text-sm xl:table">
+            <table className="hidden w-full text-sm lg:table">
               <thead className="border-b hairline bg-white/[0.02] text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Borrower</th>
-                  <th className="px-5 py-3 text-right font-semibold">Loan</th>
-                  <th className="px-5 py-3 font-semibold">Repayment</th>
-                  <th className="px-5 py-3 text-right font-semibold">Outstanding</th>
-                  <th className="px-5 py-3 font-semibold">Next / overdue</th>
+                  <th className="px-5 py-3 text-right font-semibold">Sanctioned</th>
+                  <th className="px-5 py-3 font-semibold">Disbursed</th>
                   <th className="px-5 py-3 font-semibold">Status</th>
                   <th className="w-10" />
                 </tr>
@@ -169,7 +133,7 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
                 ))}
               </tbody>
             </table>
-            <ul className="divide-y divide-line xl:hidden">
+            <ul className="divide-y divide-line lg:hidden">
               {rows.map((l) => (
                 <LoanLi key={l.app.id} l={l} ctx={ctx} />
               ))}
@@ -181,37 +145,18 @@ export function LoansPanel({ ctx }: { ctx: AdminCtx }) {
   );
 }
 
-function Due({ l }: { l: LoanRow }) {
-  if (l.loan.status === "closed") return <span className="text-muted">Repaid</span>;
-  if (!l.complete) return <span className="text-warn">Terms not set</span>;
-  if (l.firstOverdue)
-    return (
-      <span className="font-semibold text-bad">
-        {rupees(l.overdueAmount)} · {l.dpd} d late
-      </span>
-    );
-  if (l.next)
-    return (
-      <span>
-        {rupees(l.next.emi)} on {dateOnly(l.next.date)}
-      </span>
-    );
-  return <span className="text-muted">All EMIs paid</span>;
+function Disbursal({ l }: { l: LoanRow }) {
+  if (!l.loan.disbursed_on) return <span className="text-warn">Not yet</span>;
+  const amt = l.loan.disbursed_amount ?? l.loan.sanctioned_amount;
+  return (
+    <span>
+      {amt ? rupees(amt) : "—"} <span className="text-muted">on {dateOnly(l.loan.disbursed_on)}</span>
+    </span>
+  );
 }
 
-function Tags({ l }: { l: LoanRow }) {
-  const b = dpdBucket(l.dpd);
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      <Pill tone={l.loan.status === "closed" ? "muted" : "info"}>{LOAN_STATUS[l.loan.status]}</Pill>
-      {l.loan.status !== "closed" && l.dpd > 0 && <Pill tone={b.tone}>{b.label}</Pill>}
-      {l.loan.status !== "closed" && !l.access && (
-        <Pill tone="warn">
-          <KeyRound size={11} /> No login
-        </Pill>
-      )}
-    </div>
-  );
+function Status({ l }: { l: LoanRow }) {
+  return <Pill tone={l.loan.status === "closed" ? "muted" : "info"}>{LOAN_STATUS[l.loan.status]}</Pill>;
 }
 
 function LoanTr({ l, ctx }: { l: LoanRow; ctx: AdminCtx }) {
@@ -234,26 +179,15 @@ function LoanTr({ l, ctx }: { l: LoanRow; ctx: AdminCtx }) {
       </td>
       <td className="px-5 py-3.5 text-right">
         <p className="font-semibold tabular-nums">{l.loan.sanctioned_amount ? rupees(l.loan.sanctioned_amount) : "—"}</p>
-        <p className="text-xs text-muted">{l.complete ? `${Number(l.loan.interest_rate)}% · ${l.loan.tenure_months} m` : "—"}</p>
+        <p className="text-xs text-muted">
+          {l.loan.interest_rate != null && l.loan.tenure_months ? `${Number(l.loan.interest_rate)}% · ${l.loan.tenure_months} m` : "—"}
+        </p>
       </td>
-      <td className="w-48 px-5 py-3.5">
-        {l.complete ? (
-          <>
-            <Bar value={l.paidCount} total={l.total} />
-            <p className="mt-1.5 text-xs text-muted">
-              {l.paidCount} of {l.total} EMIs paid
-            </p>
-          </>
-        ) : (
-          <span className="text-xs text-muted">—</span>
-        )}
-      </td>
-      <td className="px-5 py-3.5 text-right font-semibold tabular-nums">{l.outstanding ? rupees(l.outstanding) : "—"}</td>
       <td className="px-5 py-3.5 text-xs">
-        <Due l={l} />
+        <Disbursal l={l} />
       </td>
       <td className="px-5 py-3.5">
-        <Tags l={l} />
+        <Status l={l} />
       </td>
       <td className="pr-4 text-faint">
         <ChevronRight size={16} />
@@ -273,24 +207,13 @@ function LoanLi({ l, ctx }: { l: LoanRow; ctx: AdminCtx }) {
               {formatPhone(l.app.phone)} · <span className="font-mono">{l.loan.loan_account_no || appRef(l.app)}</span>
             </p>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="font-semibold">{l.loan.sanctioned_amount ? rupees(l.loan.sanctioned_amount) : "—"}</p>
-            <p className="text-xs text-muted">{l.outstanding ? `${rupees(l.outstanding)} left` : ""}</p>
-          </div>
+          <p className="shrink-0 font-semibold">{l.loan.sanctioned_amount ? rupees(l.loan.sanctioned_amount) : "—"}</p>
         </div>
-        {l.complete && (
-          <div className="mt-3 flex items-center gap-3">
-            <Bar value={l.paidCount} total={l.total} />
-            <span className="shrink-0 text-xs text-muted">
-              {l.paidCount}/{l.total}
-            </span>
-          </div>
-        )}
         <p className="mt-2 text-xs">
-          <Due l={l} />
+          <Disbursal l={l} />
         </p>
         <div className="mt-2">
-          <Tags l={l} />
+          <Status l={l} />
         </div>
       </button>
     </li>

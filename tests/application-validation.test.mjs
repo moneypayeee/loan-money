@@ -4,11 +4,11 @@ import { validateApplication, firstStepWithError } from "../src/lib/application-
 
 const today = new Date("2026-11-06T00:00:00Z");
 const valid = {
-  full_name: "Asha Rao", phone: "9876543210", dob: "1998-04-12", category: "Employed", requested_amount: "25000",
+  full_name: "Asha Rao", phone: "9876543210", alt_phone: "9876543211", email: "asha.rao@example.com", dob: "1998-04-12", category: "Employed", requested_amount: "25000",
   address: "12 MG Road, Indiranagar", city: "Bengaluru", state: "Karnataka", pincode: "560038",
   identity_type: "Voter ID", identity_last4: "AB12", institution: "", kyc_consent: true,
   transaction_id: "428192018291", refund_upi_id: "asha.rao@okaxis", payment_consent: true,
-  files: { identity: true, address: true, student: false, proof: true },
+  files: { identity: true, address: true, aadhaar: true, pan: true, student: false, proof: true },
 };
 
 test("a complete application has no errors", () => {
@@ -31,6 +31,6 @@ test("amount bounds and phone format", () => {
 });
 test("errors map to the wizard step that owns the field", () => {
   assert.equal(firstStepWithError(validateApplication({ ...valid, pincode: "0123" }, today)), 0);
-  assert.equal(firstStepWithError(validateApplication({ ...valid, files: { ...valid.files, address: false } }, today)), 1);
+  assert.equal(firstStepWithError(validateApplication({ ...valid, files: { ...valid.files, address: false, aadhaar: false } }, today)), 1);
   assert.equal(firstStepWithError(validateApplication({ ...valid, payment_consent: false }, today)), 2);
 });

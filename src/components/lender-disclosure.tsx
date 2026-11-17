@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeIndianRupee, Building2, Clock3, FileLock2, RotateCcw, ShieldCheck } from "lucide-react";
+import { BadgeIndianRupee, Building2, Clock3, FileLock2, Gift, ShieldCheck } from "lucide-react";
 import { useSettings } from "@/lib/settings-context";
 import { FEE } from "@/lib/types";
 
@@ -11,24 +11,21 @@ import { FEE } from "@/lib/types";
  */
 export function DisclosureBar() {
   const { site, disclosed, loading } = useSettings();
-  if (loading) return <div className="h-8 border-b border-white/[0.06] bg-[#070a12] sm:h-9" />;
+  if (loading) return <div className="h-8 border-b border-white/[0.06] bg-[#050a07] sm:h-9" />;
 
   const items: { icon: typeof ShieldCheck; text: React.ReactNode }[] = [
-    disclosed && site
-      ? {
-          icon: ShieldCheck,
-          text: (
-            <>
-              Loans are provided by <strong className="font-semibold text-ink">{site.lender_name}</strong>, an RBI-registered{" "}
-              {site.lender_type === "Other RBI-regulated entity" ? "regulated entity" : site.lender_type} · RBI Reg.{" "}
-              <span className="font-mono text-gold-ink">{site.lender_reg_no}</span>
-            </>
-          ),
-        }
-      : { icon: ShieldCheck, text: "Lender details have not been published yet. Applications open once they are." },
+    {
+      icon: ShieldCheck,
+      text: (
+        <>
+          Loans are issued &amp; managed by <strong className="font-semibold text-ink">RBI-registered banking &amp; lending partners</strong>
+        </>
+      ),
+    },
     { icon: BadgeIndianRupee, text: <>One-time ₹{FEE} application fee · no hidden charges</> },
-    { icon: RotateCcw, text: <>Not approved? Full ₹{FEE} refund within {site?.refund_days ?? 7} days</> },
-    { icon: Clock3, text: "Decision in 24–48 hours" },
+    { icon: Gift, text: <>Refer friends, get 1,000 Coins &amp; convert to real money in your UPI!</> },
+    { icon: ShieldCheck, text: <>100% digital & secure document verification</> },
+    { icon: Clock3, text: "Instant loan in 48 hours" },
     { icon: FileLock2, text: "Your documents are stored privately" },
   ];
 
@@ -45,7 +42,7 @@ export function DisclosureBar() {
   );
 
   return (
-    <div className="group relative border-b border-white/[0.06] bg-[#070a12]/95 text-[0.72rem] text-ink-2 backdrop-blur-xl">
+    <div className="group relative border-b border-white/[0.06] bg-[#050a07]/95 text-[0.72rem] text-ink-2 backdrop-blur-xl">
       <div className="mask-fade-x flex h-8 items-center overflow-hidden sm:h-9">
         <div className="flex w-max animate-ticker group-hover:[animation-play-state:paused]">
           {row(false)}
@@ -58,7 +55,7 @@ export function DisclosureBar() {
 
 /** Full disclosure block used on the landing, apply and legal pages. */
 export function DisclosureCard({ className = "" }: { className?: string }) {
-  const { site, disclosed } = useSettings();
+  const { site } = useSettings();
   return (
     <div className={`card card-glow p-6 sm:p-7 ${className}`}>
       <div className="flex items-start gap-4">
@@ -66,38 +63,15 @@ export function DisclosureCard({ className = "" }: { className?: string }) {
           <Building2 size={20} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-muted">Lending partner</p>
-          {disclosed && site ? (
-            <>
-              <p className="mt-1 text-base font-bold text-ink">{site.lender_name}</p>
-              <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                <Row label="Type" value={site.lender_type} />
-                <Row label="RBI registration" value={site.lender_reg_no} mono />
-                {site.lender_website && (
-                  <Row
-                    label="Website"
-                    value={
-                      <a className="text-brand underline-offset-2 hover:underline" href={site.lender_website} target="_blank" rel="noopener noreferrer">
-                        {site.lender_website.replace(/^https?:\/\//, "")}
-                      </a>
-                    }
-                  />
-                )}
-                <Row label="Sourcing platform" value={site.company_name || "Money Pay"} />
-              </dl>
-              <p className="mt-4 border-t hairline pt-4 text-xs leading-relaxed text-muted">
-                Grievance officer: <strong className="text-ink-2">{site.grievance_officer}</strong> ·{" "}
-                <a className="text-brand hover:underline" href={`mailto:${site.grievance_email}`}>
-                  {site.grievance_email}
-                </a>
-                {site.grievance_phone && <> · {site.grievance_phone}</>}
-              </p>
-            </>
-          ) : (
-            <p className="mt-1 text-sm leading-relaxed text-muted">
-              Lender details have not been published yet. Applications stay closed until the lending partner and its RBI registration are shown here.
-            </p>
-          )}
+          <p className="text-[0.7rem] font-bold uppercase tracking-[0.14em] text-muted">Lending partners</p>
+          <p className="mt-1 text-base font-bold text-ink">RBI-Registered Banking &amp; NBFC Partners</p>
+          <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            <Row label="Broker platform" value={site?.company_name || "MoneyPayee"} />
+            <Row label="Loan management" value="Managed directly by partner banks & NBFCs" />
+          </dl>
+          <p className="mt-4 border-t hairline pt-4 text-xs leading-relaxed text-muted">
+            MoneyPayee verifies your documents and forwards your application to our lending partners. Final loan amount, interest rate, and repayment terms are shared in a Key Fact Statement before you sign.
+          </p>
         </div>
       </div>
     </div>

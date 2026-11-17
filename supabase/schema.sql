@@ -146,6 +146,7 @@ alter table public.applications add column if not exists updated_at timestamptz 
 -- Optional email the applicant gave at sign-up (login is by mobile number)
 alter table public.applications add column if not exists contact_email text
   check (contact_email is null or contact_email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$');
+alter table public.applications add column if not exists referred_by_code text;
 create index if not exists applications_phone_idx on public.applications(phone) where status = 'accepted';
 -- KYC is checked on its own (KYC tab) before the approve / decline decision
 alter table public.applications add column if not exists kyc_status text not null default 'pending'
@@ -197,6 +198,14 @@ create table if not exists public.application_kyc (
   student_path       text,
   consent_at         timestamptz not null default now()
 );
+-- Extra documents & contact details collected by the form (were previously not saved)
+alter table public.application_kyc add column if not exists aadhaar_back_path text;
+alter table public.application_kyc add column if not exists pan_path          text;
+alter table public.application_kyc add column if not exists driving_path      text;
+alter table public.application_kyc add column if not exists id_card_path      text;
+alter table public.application_kyc add column if not exists id_card_back_path text;
+alter table public.application_kyc add column if not exists alt_phone         text check (alt_phone is null or alt_phone ~ '^[6-9][0-9]{9}$');
+alter table public.application_kyc add column if not exists email             text check (email is null or email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$');
 alter table public.application_kyc enable row level security;
 revoke all on public.application_kyc from anon, authenticated;
 grant select on public.application_kyc to authenticated;
@@ -276,8 +285,104 @@ create policy "Read own KYC documents or admin" on storage.objects
     and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
 
 -- ---------------------------------------------------------------------
+-- 7b. Referral & Coin Rewards tables (defined before RPCs that reference them)
+-- ---------------------------------------------------------------------
+create table if not exists public.referral_config (
+  id                    integer primary key default 1 check (id = 1),
+  enabled               boolean not null default true,
+  coins_per_referral    integer not null default 1000 check (coins_per_referral >= 0),
+  rupees_per_1000_coins integer not null default 100 check (rupees_per_1000_coins > 0),
+  min_redeem_coins      integer not null default 1000 check (min_redeem_coins >= 100),
+  award_trigger         text not null default 'fee_verified' check (award_trigger in ('fee_verified','submitted')),
+  updated_at            timestamptz not null default now()
+);
+insert into public.referral_config(id) values (1) on conflict (id) do nothing;
+alter table public.referral_config enable row level security;
+revoke all on public.referral_config from anon, authenticated;
+grant select on public.referral_config to anon, authenticated;
+drop policy if exists "Public referral config" on public.referral_config;
+create policy "Public referral config" on public.referral_config for select using (true);
+
+create table if not exists public.user_wallets (
+  user_id       uuid primary key references auth.users(id) on delete cascade,
+  referral_code text not null unique,
+  coins_balance integer not null default 0 check (coins_balance >= 0),
+  saved_upi_id  text,
+  updated_at    timestamptz not null default now()
+);
+alter table public.user_wallets enable row level security;
+revoke all on public.user_wallets from anon, authenticated;
+grant select on public.user_wallets to authenticated;
+drop policy if exists "Read own wallet or admin" on public.user_wallets;
+create policy "Read own wallet or admin" on public.user_wallets
+  for select to authenticated using (user_id = auth.uid() or public.is_admin());
+
+create table if not exists public.referrals (
+  id                      uuid primary key default gen_random_uuid(),
+  referrer_user_id        uuid not null references auth.users(id) on delete cascade,
+  referrer_code           text not null,
+  referred_user_id        uuid not null unique references auth.users(id) on delete cascade,
+  referred_application_id uuid references public.applications(id) on delete set null,
+  referred_name           text not null,
+  referred_phone          text not null,
+  coins_awarded           integer not null default 0 check (coins_awarded >= 0),
+  status                  text not null default 'pending' check (status in ('pending','completed')),
+  created_at              timestamptz not null default now(),
+  completed_at            timestamptz
+);
+create index if not exists referrals_referrer_idx on public.referrals(referrer_user_id, created_at desc);
+alter table public.referrals enable row level security;
+revoke all on public.referrals from anon, authenticated;
+grant select on public.referrals to authenticated;
+drop policy if exists "Read own referrals or admin" on public.referrals;
+create policy "Read own referrals or admin" on public.referrals
+  for select to authenticated using (referrer_user_id = auth.uid() or public.is_admin());
+
+create table if not exists public.payout_requests (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  user_name     text not null,
+  user_phone    text not null,
+  upi_id        text,
+  coins         integer not null check (coins > 0),
+  amount_rupees integer not null check (amount_rupees > 0),
+  status        text not null default 'pending' check (status in ('pending','paid','declined')),
+  payout_utr    text,
+  admin_note    text,
+  created_at    timestamptz not null default now(),
+  paid_at       timestamptz,
+  processed_by  uuid references auth.users(id) on delete set null
+);
+create index if not exists payout_requests_user_idx on public.payout_requests(user_id, created_at desc);
+create index if not exists payout_requests_status_idx on public.payout_requests(status, created_at desc);
+alter table public.payout_requests enable row level security;
+revoke all on public.payout_requests from anon, authenticated;
+grant select on public.payout_requests to authenticated;
+drop policy if exists "Read own payouts or admin" on public.payout_requests;
+create policy "Read own payouts or admin" on public.payout_requests
+  for select to authenticated using (user_id = auth.uid() or public.is_admin());
+
+-- Payout method: a UPI ID or a label such as 'Bank Transfer' / 'Bank / UPI transfer'.
+-- (An older version only allowed UPI IDs here, which blocked admin bank payouts.)
+alter table public.payout_requests drop constraint if exists payout_requests_upi_id_check;
+alter table public.payout_requests add constraint payout_requests_upi_id_check
+  check (upi_id is null or length(trim(upi_id)) between 2 and 128);
+
+-- Per-referral payout tracking (admin ticks approved referrals and pays them together)
+-- and a 'declined' state for referrals whose application was rejected.
+alter table public.referrals add column if not exists paid_at timestamptz;
+alter table public.referrals add column if not exists payout_id uuid references public.payout_requests(id) on delete set null;
+alter table public.referrals drop constraint if exists referrals_status_check;
+alter table public.referrals add constraint referrals_status_check check (status in ('pending','completed','declined'));
+
+-- Fast duplicate-applicant checks (same mobile number or email)
+create index if not exists applications_phone_any_idx on public.applications(phone);
+create index if not exists applications_email_any_idx on public.applications(lower(contact_email));
+
+-- ---------------------------------------------------------------------
 -- 8. RPC: applicant submits an application (atomic: application + KYC + event)
 -- ---------------------------------------------------------------------
+drop function if exists public.submit_loan_application(text,text,text,integer,text,text,text,text,jsonb);
 create or replace function public.submit_loan_application(
   p_full_name        text,
   p_phone            text,
@@ -287,7 +392,8 @@ create or replace function public.submit_loan_application(
   p_proof_path       text,
   p_expected_qr      text,
   p_refund_upi_id    text,
-  p_kyc              jsonb
+  p_kyc              jsonb,
+  p_referral_code    text default null
 ) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -301,8 +407,21 @@ declare
   v_txn       text := upper(trim(coalesce(p_transaction_id,'')));
   v_refund    text := lower(trim(coalesce(p_refund_upi_id,'')));
   v_doc       text;
+  v_ref_input text := upper(trim(coalesce(p_referral_code,'')));
+  v_referrer  uuid;
+  v_rcfg      public.referral_config;
+  v_email     text := lower(trim(coalesce(nullif(trim(auth.jwt() -> 'user_metadata' ->> 'contact_email'), ''), p_kyc->>'email', '')));
 begin
   if v_uid is null then raise exception 'Please sign in to submit an application.'; end if;
+
+  -- One application per person: the same mobile number or email can't apply twice.
+  perform pg_advisory_xact_lock(hashtext('apply-phone:' || trim(coalesce(p_phone,''))));
+  if exists(select 1 from public.applications where phone = trim(coalesce(p_phone,''))) then
+    raise exception 'An application with this mobile number already exists. Please contact us on WhatsApp for help.';
+  end if;
+  if v_email <> '' and exists(select 1 from public.applications where lower(contact_email) = v_email) then
+    raise exception 'An application with this email ID already exists. Please contact us on WhatsApp for help.';
+  end if;
 
   -- Lender disclosure must be published before anyone can apply.
   select * into v_site from public.site_settings where id = 1;
@@ -310,8 +429,10 @@ begin
     raise exception 'Applications are closed until lender details are published.';
   end if;
 
-  if exists(select 1 from public.applications where user_id = v_uid and status = 'pending') then
-    raise exception 'You already have an application under review.';
+  -- One application per hidden account: a second person must never be filed under an
+  -- earlier applicant's account (their referral would then look like a self-referral).
+  if exists(select 1 from public.applications where user_id = v_uid) then
+    raise exception 'This form session was already used for an application. Please reload the page and apply again.';
   end if;
   if v_txn !~ '^[A-Z0-9]{6,40}$' then
     raise exception 'Enter a valid UPI transaction reference (UTR).';
@@ -362,6 +483,19 @@ begin
       raise exception 'A supporting document could not be found. Please upload it again.';
     end if;
   end loop;
+  -- PAN is mandatory; the other extra documents are optional but must be the applicant's own uploads.
+  if nullif(p_kyc->>'pan_path','') is null then
+    raise exception 'Upload your PAN card.';
+  end if;
+  foreach v_doc in array array[p_kyc->>'pan_path', p_kyc->>'aadhaar_back_path', p_kyc->>'driving_path',
+                               p_kyc->>'id_card_path', p_kyc->>'id_card_back_path'] loop
+    if nullif(v_doc,'') is not null and not exists(
+         select 1 from storage.objects
+          where bucket_id = 'kyc-documents' and name = v_doc
+            and (storage.foldername(name))[1] = v_uid::text) then
+      raise exception 'A supporting document could not be found. Please upload it again.';
+    end if;
+  end loop;
 
   -- Payment
   select * into v_payment from public.payment_settings where id = 1 for share;
@@ -386,32 +520,64 @@ begin
 
   insert into public.applications(
     id, ref_code, user_id, full_name, phone, category, requested_amount, transaction_id,
-    proof_path, fee, payee_name, upi_id, qr_path, refund_upi_id, lender_name, lender_reg_no, contact_email)
+    proof_path, fee, payee_name, upi_id, qr_path, refund_upi_id, lender_name, lender_reg_no, contact_email, referred_by_code)
   values (
     v_id, v_ref, v_uid, trim(p_full_name), trim(p_phone), p_category, p_requested_amount, v_txn,
     p_proof_path, 299, v_payment.payee_name, v_payment.upi_id, v_payment.qr_path, v_refund,
     v_site.lender_name, v_site.lender_reg_no,
     -- optional email saved in the account's metadata at sign-up
     (select case when e ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then lower(e) end
-       from (select nullif(trim(coalesce(auth.jwt() -> 'user_metadata' ->> 'contact_email', '')), '') as e) x));
+       from (select nullif(trim(coalesce(auth.jwt() -> 'user_metadata' ->> 'contact_email', '')), '') as e) x),
+    nullif(v_ref_input, ''));
 
   insert into public.application_kyc(
     application_id, dob, address, city, state, pincode, identity_type, identity_last4,
-    institution, identity_path, identity_back_path, address_path, student_path)
+    institution, identity_path, identity_back_path, address_path, student_path,
+    aadhaar_back_path, pan_path, driving_path, id_card_path, id_card_back_path, alt_phone, email)
   values (
     v_id, v_dob, trim(p_kyc->>'address'), trim(p_kyc->>'city'), trim(p_kyc->>'state'),
     trim(p_kyc->>'pincode'), p_kyc->>'identity_type', upper(trim(p_kyc->>'identity_last4')),
     case when p_category = 'Student' then trim(p_kyc->>'institution') end,
     p_kyc->>'identity_path', nullif(p_kyc->>'identity_back_path',''), p_kyc->>'address_path',
-    case when p_category = 'Student' then p_kyc->>'student_path' end);
+    case when p_category = 'Student' then p_kyc->>'student_path' end,
+    nullif(p_kyc->>'aadhaar_back_path',''), nullif(p_kyc->>'pan_path',''), nullif(p_kyc->>'driving_path',''),
+    nullif(p_kyc->>'id_card_path',''), nullif(p_kyc->>'id_card_back_path',''),
+    case when trim(coalesce(p_kyc->>'alt_phone','')) ~ '^[6-9][0-9]{9}$' then trim(p_kyc->>'alt_phone') end,
+    case when lower(trim(coalesce(p_kyc->>'email',''))) ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then lower(trim(p_kyc->>'email')) end);
 
   insert into public.application_events(application_id, kind, note, actor)
   values (v_id, 'submitted', 'Application submitted with ₹299 fee (UTR ' || v_txn || ')', v_uid);
 
+  if v_ref_input <> '' then
+    select * into v_rcfg from public.referral_config where id = 1;
+    if v_rcfg.enabled then
+      select user_id into v_referrer from public.user_wallets where referral_code = v_ref_input;
+      if v_referrer is not null and v_referrer <> v_uid then
+        insert into public.referrals(
+          referrer_user_id, referrer_code, referred_user_id, referred_application_id,
+          referred_name, referred_phone, coins_awarded, status, completed_at)
+        values (
+          v_referrer, v_ref_input, v_uid, v_id,
+          trim(p_full_name), trim(p_phone),
+          case when v_rcfg.award_trigger = 'submitted' then v_rcfg.coins_per_referral else 0 end,
+          case when v_rcfg.award_trigger = 'submitted' then 'completed' else 'pending' end,
+          case when v_rcfg.award_trigger = 'submitted' then now() else null end)
+        on conflict (referred_user_id) do nothing;
+
+        if found and v_rcfg.award_trigger = 'submitted' then
+          update public.user_wallets
+             set coins_balance = coins_balance + v_rcfg.coins_per_referral,
+                 updated_at = now()
+           where user_id = v_referrer;
+        end if;
+      end if;
+    end if;
+  end if;
+
   return jsonb_build_object('id', v_id, 'ref_code', v_ref);
 end; $$;
-revoke all on function public.submit_loan_application(text,text,text,integer,text,text,text,text,jsonb) from public, anon, authenticated;
-grant execute on function public.submit_loan_application(text,text,text,integer,text,text,text,text,jsonb) to authenticated;
+revoke all on function public.submit_loan_application(text,text,text,integer,text,text,text,text,jsonb,text) from public, anon, authenticated;
+grant execute on function public.submit_loan_application(text,text,text,integer,text,text,text,text,jsonb,text) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- 9. RPC: admin decision (creates refund obligation on rejection)
@@ -476,6 +642,37 @@ begin
     values (p_id, 'no_refund',
             'No refund issued: the ₹299 payment could not be found in the receiving account. Contact the grievance officer with your UTR if you were charged.',
             auth.uid());
+  end if;
+
+  -- Referral reward: the referrer earns coins when the referred application is APPROVED
+  -- (payment + KYC verified). A rejected referral is marked 'declined' (no coins).
+  declare
+    v_rcfg public.referral_config;
+    v_ref_row public.referrals;
+  begin
+    select * into v_rcfg from public.referral_config where id = 1;
+    select * into v_ref_row from public.referrals
+     where referred_application_id = p_id and status = 'pending' for update;
+    if found then
+      if p_decision = 'accepted' and v_rcfg.enabled then
+        update public.referrals
+           set status = 'completed',
+               coins_awarded = v_rcfg.coins_per_referral,
+               completed_at = now()
+         where id = v_ref_row.id;
+        update public.user_wallets
+           set coins_balance = coins_balance + v_rcfg.coins_per_referral,
+               updated_at = now()
+         where user_id = v_ref_row.referrer_user_id;
+      elsif p_decision = 'rejected' then
+        update public.referrals set status = 'declined', completed_at = now() where id = v_ref_row.id;
+      end if;
+    end if;
+  end;
+
+  -- Every approved applicant gets their own referral code to share.
+  if p_decision = 'accepted' then
+    perform public.ensure_referral_code(v_app.user_id);
   end if;
 end; $$;
 revoke all on function public.admin_review_application(uuid,text,boolean,boolean,text) from public, anon, authenticated;
@@ -1285,6 +1482,434 @@ grant execute on function public.applicant_resubmit_kyc(uuid,jsonb) to authentic
 -- Admins are added and removed in Supabase (see the end of this file), not from the console
 drop function if exists public.admin_add_admin(text);
 drop function if exists public.admin_remove_admin(uuid);
+
+-- ---------------------------------------------------------------------
+-- 18. Referral & Coin Rewards RPCs (tables defined in Section 7b)
+-- ---------------------------------------------------------------------
+-- User: fetch (and initialize if needed) wallet, referral code, config, referrals, and payout requests
+create or replace function public.get_my_referral_portal() returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_wallet public.user_wallets;
+  v_cfg    public.referral_config;
+  v_phone  text;
+  v_code   text;
+begin
+  if v_uid is null then raise exception 'Please sign in to view your referral wallet.'; end if;
+  select * into v_cfg from public.referral_config where id = 1;
+  select * into v_wallet from public.user_wallets where user_id = v_uid;
+  if not found then
+    select coalesce(raw_user_meta_data->>'phone', '') into v_phone from auth.users where id = v_uid;
+    v_code := 'MP-REF-' || coalesce(nullif(right(regexp_replace(v_phone, '\D', '', 'g'), 4), ''), upper(substr(replace(v_uid::text, '-', ''), 1, 4)));
+    if exists(select 1 from public.user_wallets where referral_code = v_code) then
+      v_code := 'MP-REF-' || upper(substr(replace(v_uid::text, '-', ''), 1, 6));
+    end if;
+    insert into public.user_wallets(user_id, referral_code) values (v_uid, v_code)
+    on conflict (user_id) do nothing;
+    select * into v_wallet from public.user_wallets where user_id = v_uid;
+  end if;
+
+  return jsonb_build_object(
+    'config', to_jsonb(v_cfg),
+    'wallet', to_jsonb(v_wallet),
+    'referrals', coalesce((select jsonb_agg(to_jsonb(r) order by r.created_at desc) from public.referrals r where r.referrer_user_id = v_uid), '[]'::jsonb),
+    'payouts', coalesce((select jsonb_agg(to_jsonb(p) order by p.created_at desc) from public.payout_requests p where p.user_id = v_uid), '[]'::jsonb)
+  );
+end; $$;
+revoke all on function public.get_my_referral_portal() from public, anon, authenticated;
+grant execute on function public.get_my_referral_portal() to authenticated;
+
+-- User: request cash payout from earned coins
+create or replace function public.request_referral_payout(p_coins integer, p_upi_id text) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_cfg    public.referral_config;
+  v_wallet public.user_wallets;
+  v_upi    text := lower(trim(coalesce(p_upi_id, '')));
+  v_rupees integer;
+  v_name   text;
+  v_phone  text;
+  v_payout public.payout_requests;
+begin
+  if v_uid is null then raise exception 'Please sign in to request a payout.'; end if;
+  select * into v_cfg from public.referral_config where id = 1;
+  if not v_cfg.enabled then raise exception 'The referral program is currently paused.'; end if;
+  if v_upi !~ '^[a-z0-9._-]{2,128}@[a-z][a-z0-9.-]{1,63}$' then
+    raise exception 'Enter a valid personal UPI ID (e.g. name@okaxis).';
+  end if;
+  if p_coins is null or p_coins < v_cfg.min_redeem_coins then
+    raise exception 'Minimum withdrawal is % coins.', v_cfg.min_redeem_coins;
+  end if;
+
+  select * into v_wallet from public.user_wallets where user_id = v_uid for update;
+  if not found or v_wallet.coins_balance < p_coins then
+    raise exception 'Insufficient coins in your wallet.';
+  end if;
+
+  v_rupees := floor((p_coins::numeric / 1000.0) * v_cfg.rupees_per_1000_coins)::integer;
+  if v_rupees <= 0 then raise exception 'Payout amount must be at least ₹1.'; end if;
+
+  select coalesce(a.full_name, u.raw_user_meta_data->>'full_name', 'Applicant'),
+         coalesce(a.phone, u.raw_user_meta_data->>'phone', '')
+    into v_name, v_phone
+    from auth.users u
+    left join public.applications a on a.user_id = u.id
+   where u.id = v_uid
+   order by a.created_at desc nulls last
+   limit 1;
+
+  update public.user_wallets
+     set coins_balance = coins_balance - p_coins,
+         saved_upi_id = v_upi,
+         updated_at = now()
+   where user_id = v_uid;
+
+  insert into public.payout_requests(user_id, user_name, user_phone, upi_id, coins, amount_rupees)
+  values (v_uid, coalesce(nullif(trim(v_name), ''), 'Applicant'), coalesce(v_phone, ''), v_upi, p_coins, v_rupees)
+  returning * into v_payout;
+
+  return jsonb_build_object(
+    'payout', to_jsonb(v_payout),
+    'coins_balance', v_wallet.coins_balance - p_coins
+  );
+end; $$;
+revoke all on function public.request_referral_payout(integer,text) from public, anon, authenticated;
+grant execute on function public.request_referral_payout(integer,text) to authenticated;
+
+-- Admin: load referral config, payouts, and referrals ledger
+create or replace function public.admin_get_referrals_dashboard() returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  return jsonb_build_object(
+    'config', (select to_jsonb(c) from public.referral_config c where id = 1),
+    'payouts', coalesce((select jsonb_agg(to_jsonb(p) order by p.created_at desc) from public.payout_requests p), '[]'::jsonb),
+    -- One row per member who has a referral code, with referral counts and paid / unpaid totals
+    'wallets', coalesce((
+      select jsonb_agg(x order by (x->>'referral_count')::int desc, x->>'name')
+      from (
+        select jsonb_build_object(
+          'user_id', w.user_id,
+          'referral_code', w.referral_code,
+          'coins_balance', w.coins_balance,
+          'name', coalesce(la.full_name, u.raw_user_meta_data->>'full_name', 'Applicant'),
+          'phone', coalesce(la.phone, u.raw_user_meta_data->>'phone', ''),
+          'email', la.contact_email,
+          'referral_count', coalesce(s.total, 0),
+          'verified_count', coalesce(s.approved, 0),
+          'pending_count', coalesce(s.pending, 0),
+          'declined_count', coalesce(s.declined, 0),
+          'paid_count', coalesce(s.paid, 0),
+          'unpaid_count', coalesce(s.unpaid, 0),
+          'paid_coins', coalesce(s.paid_coins, 0),
+          'unpaid_coins', coalesce(s.unpaid_coins, 0)
+        ) as x
+        from public.user_wallets w
+        left join auth.users u on u.id = w.user_id
+        left join lateral (
+          select a.full_name, a.phone, a.contact_email from public.applications a
+           where a.user_id = w.user_id order by a.created_at desc limit 1
+        ) la on true
+        left join lateral (
+          select count(*)                                                            as total,
+                 count(*) filter (where r.status = 'completed')                       as approved,
+                 count(*) filter (where r.status = 'pending')                         as pending,
+                 count(*) filter (where r.status = 'declined')                        as declined,
+                 count(*) filter (where r.status = 'completed' and r.paid_at is not null) as paid,
+                 count(*) filter (where r.status = 'completed' and r.paid_at is null)     as unpaid,
+                 coalesce(sum(r.coins_awarded) filter (where r.status = 'completed' and r.paid_at is not null), 0) as paid_coins,
+                 coalesce(sum(r.coins_awarded) filter (where r.status = 'completed' and r.paid_at is null), 0)     as unpaid_coins
+            from public.referrals r where r.referrer_user_id = w.user_id
+        ) s on true
+      ) t
+    ), '[]'::jsonb),
+    'referrals', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', r.id,
+        'referrer_user_id', r.referrer_user_id,
+        'referrer_code', r.referrer_code,
+        'referrer_name', coalesce((select a.full_name from public.applications a where a.user_id = r.referrer_user_id order by a.created_at desc limit 1),
+                                  u.raw_user_meta_data->>'full_name', 'Applicant'),
+        'referrer_phone', coalesce((select a.phone from public.applications a where a.user_id = r.referrer_user_id order by a.created_at desc limit 1),
+                                   u.raw_user_meta_data->>'phone', ''),
+        'referred_name', r.referred_name,
+        'referred_phone', r.referred_phone,
+        'referred_application_id', r.referred_application_id,
+        'application_ref', ra.ref_code,
+        'application_status', ra.status,
+        'requested_amount', ra.requested_amount,
+        'coins_awarded', r.coins_awarded,
+        'status', r.status,
+        'created_at', r.created_at,
+        'completed_at', r.completed_at,
+        'paid_at', r.paid_at,
+        'payout_utr', pr.payout_utr
+      ) order by r.created_at desc)
+      from public.referrals r
+      left join auth.users u on u.id = r.referrer_user_id
+      left join public.applications ra on ra.id = r.referred_application_id
+      left join public.payout_requests pr on pr.id = r.payout_id
+    ), '[]'::jsonb)
+  );
+end; $$;
+revoke all on function public.admin_get_referrals_dashboard() from public, anon, authenticated;
+grant execute on function public.admin_get_referrals_dashboard() to authenticated;
+
+-- Admin: issue a bank account payout directly to a referrer
+create or replace function public.admin_issue_bank_payout(p_user_id uuid, p_coins integer, p_utr text, p_note text default null) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_cfg    public.referral_config;
+  v_wallet public.user_wallets;
+  v_utr    text := upper(trim(coalesce(p_utr, '')));
+  v_rupees integer;
+  v_name   text;
+  v_phone  text;
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  if length(v_utr) < 4 then raise exception 'Enter the bank transfer UTR or reference number.'; end if;
+  select * into v_cfg from public.referral_config where id = 1;
+  select * into v_wallet from public.user_wallets where user_id = p_user_id for update;
+  if not found or p_coins is null or p_coins <= 0 or v_wallet.coins_balance < p_coins then
+    raise exception 'Insufficient coins in referrer wallet.';
+  end if;
+
+  v_rupees := floor((p_coins::numeric / 1000.0) * v_cfg.rupees_per_1000_coins)::integer;
+  if v_rupees <= 0 then raise exception 'Payout amount must be at least ₹1.'; end if;
+
+  select coalesce(a.full_name, u.raw_user_meta_data->>'full_name', 'Applicant'),
+         coalesce(a.phone, u.raw_user_meta_data->>'phone', '')
+    into v_name, v_phone
+    from auth.users u
+    left join public.applications a on a.user_id = u.id
+   where u.id = p_user_id
+   order by a.created_at desc nulls last
+   limit 1;
+
+  update public.user_wallets
+     set coins_balance = coins_balance - p_coins, updated_at = now()
+   where user_id = p_user_id;
+
+  insert into public.payout_requests(user_id, user_name, user_phone, upi_id, coins, amount_rupees, status, payout_utr, admin_note, paid_at, processed_by)
+  values (p_user_id, coalesce(nullif(trim(v_name), ''), 'Applicant'), coalesce(v_phone, ''), 'Bank Transfer', p_coins, v_rupees, 'paid', v_utr, nullif(trim(coalesce(p_note,'')), ''), now(), auth.uid());
+end; $$;
+revoke all on function public.admin_issue_bank_payout(uuid,integer,text,text) from public, anon, authenticated;
+grant execute on function public.admin_issue_bank_payout(uuid,integer,text,text) to authenticated;
+
+-- Admin: update referral program config
+create or replace function public.admin_update_referral_config(p jsonb) returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  update public.referral_config set
+    enabled               = coalesce((p->>'enabled')::boolean, enabled),
+    coins_per_referral    = greatest(0, coalesce((p->>'coins_per_referral')::integer, coins_per_referral)),
+    rupees_per_1000_coins = greatest(1, coalesce((p->>'rupees_per_1000_coins')::integer, rupees_per_1000_coins)),
+    min_redeem_coins      = greatest(100, coalesce((p->>'min_redeem_coins')::integer, min_redeem_coins)),
+    award_trigger         = case when (p->>'award_trigger') in ('fee_verified','submitted') then p->>'award_trigger' else award_trigger end,
+    updated_at            = now()
+  where id = 1;
+end; $$;
+revoke all on function public.admin_update_referral_config(jsonb) from public, anon, authenticated;
+grant execute on function public.admin_update_referral_config(jsonb) to authenticated;
+
+-- Admin: mark payout paid or declined (refunding coins on decline)
+create or replace function public.admin_process_payout(p_id uuid, p_action text, p_utr text default null, p_note text default null) returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_req public.payout_requests;
+  v_utr text := upper(trim(coalesce(p_utr, '')));
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  if p_action not in ('paid', 'declined') then raise exception 'Invalid action.'; end if;
+  select * into v_req from public.payout_requests where id = p_id for update;
+  if not found then raise exception 'Payout request not found.'; end if;
+  if v_req.status <> 'pending' then raise exception 'This payout has already been processed.'; end if;
+
+  if p_action = 'paid' then
+    if length(v_utr) < 4 then raise exception 'Enter the UPI or Bank transfer UTR reference.'; end if;
+    update public.payout_requests
+       set status = 'paid', payout_utr = v_utr, admin_note = nullif(trim(coalesce(p_note,'')), ''),
+           paid_at = now(), processed_by = auth.uid()
+     where id = p_id;
+  else
+    update public.payout_requests
+       set status = 'declined', admin_note = nullif(trim(coalesce(p_note,'')), ''), processed_by = auth.uid()
+     where id = p_id;
+    update public.user_wallets
+       set coins_balance = coins_balance + v_req.coins, updated_at = now()
+     where user_id = v_req.user_id;
+  end if;
+end; $$;
+revoke all on function public.admin_process_payout(uuid,text,text,text) from public, anon, authenticated;
+grant execute on function public.admin_process_payout(uuid,text,text,text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 19. Broker referral flow: approval message with referral link,
+--     referral-code check on the apply page, duplicate applicant check,
+--     and paying ticked referrals together.
+-- ---------------------------------------------------------------------
+
+-- Internal: return the member's referral code, creating a unique one (e.g. MP7K2Q9X) if needed.
+create or replace function public.ensure_referral_code(p_uid uuid) returns text
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_code  text;
+  v_alpha constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  -- no 0/O/1/I to avoid typos
+  i       integer;
+begin
+  if p_uid is null then return null; end if;
+  select referral_code into v_code from public.user_wallets where user_id = p_uid;
+  if found then return v_code; end if;
+  loop
+    v_code := 'MP';
+    for i in 1..6 loop
+      v_code := v_code || substr(v_alpha, 1 + floor(random() * length(v_alpha))::integer, 1);
+    end loop;
+    exit when not exists(select 1 from public.user_wallets where referral_code = v_code);
+  end loop;
+  insert into public.user_wallets(user_id, referral_code) values (p_uid, v_code)
+  on conflict (user_id) do nothing;
+  select referral_code into v_code from public.user_wallets where user_id = p_uid;
+  return v_code;
+end; $$;
+revoke all on function public.ensure_referral_code(uuid) from public, anon, authenticated;
+
+-- Admin: referral code for an approved application (used in the WhatsApp / mail approval message).
+create or replace function public.admin_referral_share(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_app public.applications;
+  v_cfg public.referral_config;
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  select * into v_app from public.applications where id = p_id;
+  if not found then raise exception 'Application not found.'; end if;
+  if v_app.status <> 'accepted' then raise exception 'Approve the application before sharing the referral link.'; end if;
+  select * into v_cfg from public.referral_config where id = 1;
+  return jsonb_build_object(
+    'code', public.ensure_referral_code(v_app.user_id),
+    'coins_per_referral', coalesce(v_cfg.coins_per_referral, 1000),
+    'enabled', coalesce(v_cfg.enabled, true));
+end; $$;
+revoke all on function public.admin_referral_share(uuid) from public, anon, authenticated;
+grant execute on function public.admin_referral_share(uuid) to authenticated;
+
+-- Public: is this referral code real? (apply page shows a tick next to the code)
+create or replace function public.referral_code_valid(p_code text) returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from public.user_wallets w, public.referral_config c
+     where c.id = 1 and c.enabled and w.referral_code = upper(trim(coalesce(p_code, ''))));
+$$;
+revoke all on function public.referral_code_valid(text) from public, anon, authenticated;
+grant execute on function public.referral_code_valid(text) to anon, authenticated;
+
+-- Public: has this mobile number / email already applied? Returns 'phone', 'email' or null.
+-- Lets the form stop a repeat applicant on the first step, before they pay.
+create or replace function public.check_applicant_exists(p_phone text, p_email text default null) returns text
+language sql stable security definer set search_path = public
+as $$
+  select case
+    when exists(select 1 from public.applications where phone = trim(coalesce(p_phone, ''))) then 'phone'
+    when nullif(lower(trim(coalesce(p_email, ''))), '') is not null
+         and exists(select 1 from public.applications where lower(contact_email) = lower(trim(p_email))) then 'email'
+  end;
+$$;
+revoke all on function public.check_applicant_exists(text,text) from public, anon, authenticated;
+grant execute on function public.check_applicant_exists(text,text) to anon, authenticated;
+
+-- Admin: pay several approved referrals of ONE member together (records one bank/UPI payout).
+create or replace function public.admin_pay_referrals(p_ids uuid[], p_utr text, p_note text default null) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_cfg      public.referral_config;
+  v_utr      text := upper(trim(coalesce(p_utr, '')));
+  v_ids      uuid[];
+  v_count    integer;
+  v_members  integer;
+  v_coins    integer;
+  v_referrer uuid;
+  v_rupees   integer;
+  v_name     text;
+  v_phone    text;
+  v_payout   uuid;
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  if length(v_utr) < 4 then raise exception 'Enter the bank / UPI transfer UTR or reference number.'; end if;
+  select array_agg(distinct x) into v_ids from unnest(coalesce(p_ids, '{}'::uuid[])) x;
+  if v_ids is null or cardinality(v_ids) = 0 then raise exception 'Tick at least one referral to pay.'; end if;
+
+  perform 1 from public.referrals where id = any(v_ids) for update;
+  select count(*), count(distinct referrer_user_id), coalesce(sum(coins_awarded), 0), min(referrer_user_id::text)::uuid
+    into v_count, v_members, v_coins, v_referrer
+    from public.referrals
+   where id = any(v_ids) and status = 'completed' and paid_at is null;
+  if v_count <> cardinality(v_ids) then
+    raise exception 'Some ticked referrals are not approved yet or were already paid. Refresh and try again.';
+  end if;
+  if v_members <> 1 then raise exception 'Pay one member''s referrals at a time.'; end if;
+
+  select * into v_cfg from public.referral_config where id = 1;
+  v_rupees := floor((v_coins::numeric / 1000.0) * v_cfg.rupees_per_1000_coins)::integer;
+  if v_rupees <= 0 then raise exception 'Payout amount must be at least ₹1.'; end if;
+
+  select coalesce(a.full_name, u.raw_user_meta_data->>'full_name', 'Applicant'),
+         coalesce(a.phone, u.raw_user_meta_data->>'phone', '')
+    into v_name, v_phone
+    from auth.users u
+    left join public.applications a on a.user_id = u.id
+   where u.id = v_referrer
+   order by a.created_at desc nulls last
+   limit 1;
+
+  insert into public.payout_requests(user_id, user_name, user_phone, upi_id, coins, amount_rupees, status, payout_utr, admin_note, paid_at, processed_by)
+  values (v_referrer, coalesce(nullif(trim(v_name), ''), 'Applicant'), coalesce(v_phone, ''), 'Bank / UPI transfer',
+          v_coins, v_rupees, 'paid', v_utr,
+          coalesce(nullif(trim(coalesce(p_note, '')), ''), v_count || ' referral(s) paid'), now(), auth.uid())
+  returning id into v_payout;
+
+  update public.referrals set paid_at = now(), payout_id = v_payout where id = any(v_ids);
+  update public.user_wallets
+     set coins_balance = greatest(0, coins_balance - v_coins), updated_at = now()
+   where user_id = v_referrer;
+
+  return jsonb_build_object('payout_id', v_payout, 'count', v_count, 'coins', v_coins, 'amount_rupees', v_rupees);
+end; $$;
+revoke all on function public.admin_pay_referrals(uuid[],text,text) from public, anon, authenticated;
+grant execute on function public.admin_pay_referrals(uuid[],text,text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- Razorpay payments confirmed by the server (/api/razorpay/verify).
+-- Written only with the service role key after the signature AND the
+-- payment status/amount are checked with Razorpay. Admins use it to tell a
+-- genuine online payment apart from a typed-in payment ID.
+create table if not exists public.razorpay_payments (
+  payment_id   text primary key,                -- e.g. pay_ABC123
+  utr          text not null unique,            -- payment_id as stored in applications.transaction_id (PAYABC123)
+  order_id     text not null,
+  amount_paise integer not null check (amount_paise > 0),
+  status       text not null,
+  verified_at  timestamptz not null default now()
+);
+alter table public.razorpay_payments enable row level security;
+revoke all on public.razorpay_payments from anon, authenticated;
+grant select on public.razorpay_payments to authenticated;
+drop policy if exists "Admins read Razorpay payments" on public.razorpay_payments;
+create policy "Admins read Razorpay payments" on public.razorpay_payments
+  for select to authenticated using (public.is_admin());
 
 commit;
 

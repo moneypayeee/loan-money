@@ -18,11 +18,11 @@ export default function PrivacyPage() {
             <li><strong>Account:</strong> your email address and a password (stored hashed by our authentication provider).</li>
             <li><strong>Application:</strong> name, mobile number, date of birth, address, category, amount requested and, for students, your institution.</li>
             <li><strong>Documents:</strong> images or PDFs of your ID, address proof and student ID. For your ID number we keep only the last four characters as text.</li>
-            <li><strong>Payment:</strong> the UTR, your payment screenshot and the UPI ID you give us for refunds.</li>
+            <li><strong>Payment:</strong> the UTR, your payment screenshot and your UPI ID.</li>
           </ul>
 
           <h2>Why we collect it</h2>
-          <p>To verify your identity, address and payment; to make a decision on your application; to refund you if you&rsquo;re not approved; and to pass approved applications to the lender.</p>
+          <p>To verify your identity, address and payment; to make a decision on your application; and to pass approved applications to the lender.</p>
 
           <h2>Who can see it</h2>
           <ul>

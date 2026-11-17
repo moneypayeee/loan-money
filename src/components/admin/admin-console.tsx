@@ -5,10 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BarChart3,
-  CalendarClock,
   ExternalLink,
   FileStack,
   FlaskConical,
+  Gift,
   History,
   Landmark,
   LayoutDashboard,
@@ -32,11 +32,10 @@ import { APPLICATION_COLUMNS, type AdminLoanPayment, type Application, type Borr
 import { Logo, Notice, Spinner } from "../ui";
 import { Overview } from "./overview";
 import { ApplicationsPanel } from "./applications-panel";
-import { RefundsPanel } from "./refunds-panel";
 import { CustomersPanel } from "./customers-panel";
 import { LoansPanel } from "./loans-panel";
-import { CollectionsPanel } from "./collections-panel";
 import { FeesPanel } from "./fees-panel";
+import { ReferralsPanel } from "./referrals-panel";
 import { ActivityPanel } from "./activity-panel";
 import { ReportsPanel } from "./reports-panel";
 import { TeamPanel } from "./team-panel";
@@ -45,7 +44,7 @@ import { buildCustomers, buildLoanRows, type Customer, type LoanRow } from "./po
 import { ApplicationDrawer } from "./application-drawer";
 import { demoAccess, demoApps, demoLoans, demoPayments, demoStats } from "./demo-data";
 
-export type Tab = "overview" | "customers" | "applications" | "kyc" | "loans" | "collections" | "fees" | "refunds" | "activity" | "reports" | "team";
+export type Tab = "overview" | "customers" | "applications" | "kyc" | "loans" | "fees" | "referrals" | "activity" | "reports" | "team";
 
 export type AdminCtx = {
   apps: Application[];
@@ -99,14 +98,17 @@ export function AdminConsole() {
   }, [ready, user, router]);
 
   // …and listed in admin_users.
+  // Keyed on the user's id, not the user object: Supabase hands out a new user object on every
+  // token refresh / tab focus, which used to reset access to "checking" and rebuild the whole console.
+  const userId = user?.id ?? null;
   useEffect(() => {
-    if (!supabase || !user) return setIsAdmin(null);
+    if (!supabase || !userId) return setIsAdmin(null);
     let alive = true;
     supabase.rpc("is_admin").then(({ data, error }) => alive && setIsAdmin(!error && data === true));
     return () => {
       alive = false;
     };
-  }, [user]);
+  }, [userId]);
 
   if (!supabase) return demoAuthed ? <Console email="demo@moneypay.local" demo /> : <Spinner label="Opening sign in…" />;
   if (!ready || !user) return <Spinner label="Checking your session…" />;
@@ -272,10 +274,8 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
     },
   };
 
-  const refundCount = apps.filter((a) => a.refund_status === "pending").length;
   const pendingCount = apps.filter((a) => a.status === "pending").length;
   const kycCount = apps.filter((a) => a.status === "pending" && a.kyc_status === "pending").length;
-  const overdueLoans = loanRows.filter((l) => l.overdueCount > 0).length;
   const openApp = apps.find((a) => a.id === openId) ?? null;
 
   const go = (t: Tab) => ctx.go(t);
@@ -283,8 +283,8 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
   return (
     <div className="relative min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
       {/* Desktop sidebar */}
-      <aside className="hidden border-r border-white/[0.06] bg-[#05070d]/85 backdrop-blur-xl lg:sticky lg:top-0 lg:block lg:h-screen">
-        <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} refundCount={refundCount} overdueLoans={overdueLoans} kycCount={kycCount} />
+      <aside className="hidden border-r border-white/[0.06] bg-[#050a07]/85 backdrop-blur-xl lg:sticky lg:top-0 lg:block lg:h-screen">
+        <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} kycCount={kycCount} />
       </aside>
 
       {/* Mobile sidebar drawer */}
@@ -300,11 +300,11 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
           role="dialog"
           aria-modal="true"
           aria-label="Admin menu"
-          className={`absolute inset-y-0 left-0 w-[86%] max-w-[300px] border-r border-white/10 bg-[#06080f]/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] ${
+          className={`absolute inset-y-0 left-0 w-[86%] max-w-[300px] border-r border-white/10 bg-[#050a07]/95 shadow-2xl backdrop-blur-2xl transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] ${
             navOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} refundCount={refundCount} overdueLoans={overdueLoans} kycCount={kycCount} onClose={() => setNavOpen(false)} />
+          <AdminSidebar tab={tab} go={go} email={email} demo={demo} pendingCount={pendingCount} kycCount={kycCount} onClose={() => setNavOpen(false)} />
         </aside>
       </div>
 
@@ -362,12 +362,10 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
             <ApplicationsPanel ctx={ctx} filter={filter} setFilter={setFilter} />
           ) : tab === "loans" ? (
             <LoansPanel ctx={ctx} />
-          ) : tab === "collections" ? (
-            <CollectionsPanel ctx={ctx} />
           ) : tab === "fees" ? (
             <FeesPanel ctx={ctx} />
-          ) : tab === "refunds" ? (
-            <RefundsPanel ctx={ctx} />
+          ) : tab === "referrals" ? (
+            <ReferralsPanel ctx={ctx} />
           ) : tab === "activity" ? (
             <ActivityPanel ctx={ctx} />
           ) : tab === "reports" ? (
@@ -399,10 +397,9 @@ const TITLES: Record<Tab, [string, string]> = {
   customers: ["Customers", "Everyone who has applied, with their applications and loans"],
   applications: ["Applications", "Check payments and decide"],
   kyc: ["KYC verification", "Check identity and address documents before the decision"],
-  loans: ["Loans", "Every approved loan, its repayment and what is outstanding"],
-  collections: ["Collections", "EMIs overdue and due soon; record payments and send reminders"],
-  fees: ["Fee payments", "Every ₹299 application fee: UTRs, verification and refunds"],
-  refunds: ["Refunds", "Send and record refunds for declined applications"],
+  loans: ["Loans", "What the partner bank sanctioned and disbursed for each approved applicant"],
+  fees: ["Fee payments", "Every ₹299 application fee: UTRs and verification"],
+  referrals: ["Referrals & Coin Rewards", "Configure coins, conversion rates, and process cash redemption requests"],
   activity: ["Activity", "Who did what, and when"],
   reports: ["Reports", "Totals for any period, and CSV exports"],
   team: ["Admins", "Who can sign in to this console"],
@@ -414,8 +411,6 @@ function AdminSidebar({
   email,
   demo,
   pendingCount,
-  refundCount,
-  overdueLoans,
   kycCount,
   onClose,
 }: {
@@ -424,15 +419,12 @@ function AdminSidebar({
   email: string;
   demo: boolean;
   pendingCount: number;
-  refundCount: number;
-  overdueLoans: number;
   kycCount: number;
   onClose?: () => void;
 }) {
   const { site, payment, disclosed } = useSettings();
-  const steps = [disclosed, Boolean(site?.grievance_officer && site?.grievance_email), Boolean(payment?.qr_path && payment?.upi_id)];
-  const done = steps.filter(Boolean).length;
-  const live = done === steps.length;
+  // Applications are accepted once the lender details and payment QR/UPI are published.
+  const live = disclosed && Boolean(payment?.qr_path && payment?.upi_id);
   const initials = (email.split("@")[0] || "A").replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() || "AD";
 
   const Item = ({ t, label, icon: Icon, badge, gold = false }: { t: Tab; label: string; icon: typeof LayoutDashboard; badge?: number; gold?: boolean }) => {
@@ -477,30 +469,18 @@ function AdminSidebar({
 
       <div className="flex-1 overflow-y-auto px-3 py-4">
         {/* Status */}
-        <div className="well mb-5 block w-full p-3.5 text-left">
-          {live ? (
-            <>
-              <span className="flex items-center gap-2 text-xs font-semibold text-ok">
-                <span className="relative flex size-2">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-                  <span className="relative inline-flex size-2 rounded-full bg-ok" />
-                </span>
-                Applications open
+        {live && (
+          <div className="well mb-5 block w-full p-3.5 text-left">
+            <span className="flex items-center gap-2 text-xs font-semibold text-ok">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
+                <span className="relative inline-flex size-2 rounded-full bg-ok" />
               </span>
-              <span className="mt-1 block truncate text-xs text-muted">{site?.lender_name}</span>
-            </>
-          ) : (
-            <>
-              <span className="flex items-center justify-between text-xs font-semibold text-gold-ink">
-                Setup {done} of {steps.length}
-              </span>
-              <span className="mt-2 block h-1 overflow-hidden rounded-full bg-white/[0.07]">
-                <span className="block h-full rounded-full bg-gradient-to-r from-gold to-brand" style={{ width: `${(done / steps.length) * 100}%` }} />
-              </span>
-              <span className="mt-2 block text-[0.7rem] leading-snug text-muted">Applications are closed until src/config/site.ts is filled in.</span>
-            </>
-          )}
-        </div>
+              Applications open
+            </span>
+            <span className="mt-1 block truncate text-xs text-muted">{site?.lender_name}</span>
+          </div>
+        )}
 
         <p className="px-2.5 pb-2 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Workspace</p>
         <nav className="space-y-1" aria-label="Workspace">
@@ -510,16 +490,15 @@ function AdminSidebar({
           <Item t="applications" label="Applications" icon={FileStack} badge={pendingCount} />
         </nav>
 
-        <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Lending</p>
-        <nav className="space-y-1" aria-label="Lending">
+        <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Loans</p>
+        <nav className="space-y-1" aria-label="Loans">
           <Item t="loans" label="Loans" icon={Landmark} />
-          <Item t="collections" label="Collections" icon={CalendarClock} badge={overdueLoans} gold />
         </nav>
 
         <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Money</p>
         <nav className="space-y-1" aria-label="Money">
           <Item t="fees" label="Fee payments" icon={ReceiptIndianRupee} />
-          <Item t="refunds" label="Refunds" icon={RotateCcw} badge={refundCount} gold />
+          <Item t="referrals" label="Referrals & Rewards" icon={Gift} gold />
         </nav>
 
         <p className="px-2.5 pb-2 pt-6 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-faint">Admin</p>

@@ -47,13 +47,13 @@ export function demoApps(): Application[] {
     app(1, 3, { full_name: "Asha Rao", category: "Self-employed", requested_amount: 75000 }),
     app(2, 20, { full_name: "Ravi Kumar", category: "Student", requested_amount: 20000, kyc_status: "resubmit", kyc_requested_docs: ["student"], kyc_note: "Student ID photo is blurred. Please upload a clear photo of the front.", kyc_reviewed_at: new Date(Date.now() - 6 * H).toISOString() }),
     app(3, 55, { full_name: "Imran Ali", category: "Driver", requested_amount: 40000 }),
-    app(4, 72, { full_name: "Meena Sharma", status: "rejected", payment_verified: true, refund_status: "pending", admin_note: "Address proof is older than 3 months. Please reapply with a recent bill.", reviewed_at: reviewed(60) }),
+    app(4, 72, { full_name: "Meena Sharma", status: "rejected", payment_verified: true, admin_note: "Address proof is older than 3 months. Please reapply with a recent bill.", reviewed_at: reviewed(60) }),
     app(5, 120, { full_name: "Karthik N", status: "accepted", payment_verified: true, kyc_verified: true, requested_amount: 100000, reviewed_at: reviewed(110) }),
-    app(6, 150, { full_name: "Priya Verma", status: "rejected", payment_verified: true, refund_status: "refunded", refund_reference: "RFD5512098733", refunded_at: reviewed(100), admin_note: "Name on ID does not match the application.", reviewed_at: reviewed(140) }),
+    app(6, 150, { full_name: "Priya Verma", status: "rejected", payment_verified: true, admin_note: "Name on ID does not match the application.", reviewed_at: reviewed(140) }),
     app(7, 200, { full_name: "Sanjay Patel", status: "accepted", payment_verified: true, kyc_verified: true, category: "Employed", requested_amount: 150000, reviewed_at: reviewed(185) }),
     app(8, 24 * 140, { full_name: "Lakshmi Iyer", user_id: "demo-user-8", status: "accepted", payment_verified: true, kyc_verified: true, category: "Self-employed", requested_amount: 60000, contact_email: "lakshmi@example.com", reviewed_at: reviewed(24 * 138) }),
     app(9, 24 * 420, { full_name: "Arjun Mehta", user_id: "demo-user-9", status: "accepted", payment_verified: true, kyc_verified: true, requested_amount: 30000, reviewed_at: reviewed(24 * 418) }),
-    app(10, 24 * 30, { full_name: "Ravi Kumar", user_id: "demo-user-2", phone: "9876543202", status: "rejected", payment_verified: true, refund_status: "refunded", refund_reference: "RFD7781200193", refunded_at: reviewed(24 * 25), category: "Student", requested_amount: 25000, admin_note: "Student ID was unreadable.", reviewed_at: reviewed(24 * 28) }),
+    app(10, 24 * 30, { full_name: "Ravi Kumar", user_id: "demo-user-2", phone: "9876543202", status: "rejected", payment_verified: true, category: "Student", requested_amount: 25000, admin_note: "Student ID was unreadable.", reviewed_at: reviewed(24 * 28) }),
   ].sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
@@ -70,9 +70,9 @@ export function demoStats(apps: Application[]): DashboardStats {
     accepted: apps.filter((a) => a.status === "accepted").length,
     rejected: apps.filter((a) => a.status === "rejected").length,
     overdue: apps.filter((a) => a.status === "pending" && now - new Date(a.created_at).getTime() > 48 * H).length,
-    refunds_pending: apps.filter((a) => a.refund_status === "pending").length,
-    refunds_pending_amount: apps.filter((a) => a.refund_status === "pending").reduce((s, a) => s + a.fee, 0),
-    refunded_amount: apps.filter((a) => a.refund_status === "refunded").reduce((s, a) => s + a.fee, 0),
+    refunds_pending: 0,
+    refunds_pending_amount: 0,
+    refunded_amount: 0,
     fees_retained: apps.filter((a) => a.status === "accepted").reduce((s, a) => s + a.fee, 0),
     accepted_volume: apps.filter((a) => a.status === "accepted").reduce((s, a) => s + a.requested_amount, 0),
     avg_review_hours: avg,
@@ -173,8 +173,6 @@ export function demoActivity(apps: Application[]): ActivityEntry[] {
       out.push({ ...base, id: id++, kind: `kyc_${a.kyc_status}`, note: a.kyc_note || (a.kyc_status === "verified" ? "KYC documents verified" : ""), created_at: a.kyc_reviewed_at, actor: "admin", actor_label: "demo@moneypay.local" });
     if (a.reviewed_at)
       out.push({ ...base, id: id++, kind: a.status, note: a.admin_note || (a.status === "accepted" ? "Approved" : ""), created_at: a.reviewed_at, actor: "admin", actor_label: "demo@moneypay.local" });
-    if (a.refunded_at)
-      out.push({ ...base, id: id++, kind: "refunded", note: `Refund sent (UTR ${a.refund_reference})`, created_at: a.refunded_at, actor: "admin", actor_label: "demo@moneypay.local" });
   }
   return out.sort((x, y) => y.created_at.localeCompare(x.created_at));
 }

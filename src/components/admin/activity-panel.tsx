@@ -16,9 +16,6 @@ const KIND: Record<string, { label: string; icon: typeof CheckCircle2; cls: stri
   submitted: { label: "Application submitted", icon: Send, cls: "text-brand bg-brand-soft" },
   accepted: { label: "Approved", icon: CheckCircle2, cls: "text-ok bg-ok-soft" },
   rejected: { label: "Declined", icon: XCircle, cls: "text-bad bg-bad-soft" },
-  refund_due: { label: "Refund queued", icon: RotateCcw, cls: "text-gold bg-gold-soft" },
-  no_refund: { label: "No refund", icon: XCircle, cls: "text-muted bg-white/[0.05]" },
-  refunded: { label: "Refund sent", icon: RotateCcw, cls: "text-ok bg-ok-soft" },
   loan_updated: { label: "Loan updated", icon: Landmark, cls: "text-brand bg-brand-soft" },
   access_issued: { label: "Borrower login issued", icon: KeyRound, cls: "text-gold bg-gold-soft" },
   payment_recorded: { label: "EMI recorded", icon: IndianRupee, cls: "text-ok bg-ok-soft" },
@@ -36,7 +33,7 @@ type Group = "all" | "decisions" | "money" | "loans" | "applicants";
 const GROUPS: Record<Group, (e: ActivityEntry) => boolean> = {
   all: () => true,
   decisions: (e) => ["accepted", "rejected", "kyc_verified", "kyc_problem", "kyc_resubmit"].includes(e.kind),
-  money: (e) => ["refund_due", "no_refund", "refunded", "payment_recorded", "payment_removed"].includes(e.kind),
+  money: (e) => ["payment_recorded", "payment_removed"].includes(e.kind),
   loans: (e) => ["loan_updated", "access_issued", "document_added", "document_removed"].includes(e.kind),
   applicants: (e) => e.actor === "applicant",
 };

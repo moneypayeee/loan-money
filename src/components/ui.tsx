@@ -1,27 +1,43 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { AlertCircle, CheckCircle2, Clock3, Info, Loader2, RotateCcw, XCircle, X } from "lucide-react";
-import type { ApplicationStatus, RefundStatus } from "@/lib/types";
+import type { ApplicationStatus } from "@/lib/types";
 
-export function Logo({ dark: _dark = true, compact = false }: { dark?: boolean; compact?: boolean }) {
+export function Logo({
+  dark = true,
+  compact = false,
+  className = "",
+}: {
+  dark?: boolean;
+  compact?: boolean;
+  className?: string;
+}) {
   return (
-    <Link href="/" className="group flex items-center gap-2.5" aria-label="Money Pay home">
-      <span
-        className="relative grid size-9 place-items-center overflow-hidden rounded-[0.7rem] text-[#1a1406] shadow-[0_8px_24px_-8px_rgb(227_194_125/0.7),inset_0_1px_0_rgb(255_255_255/0.6)]"
-        style={{ background: "linear-gradient(145deg,#f6e3b4 0%,#e3c27d 45%,#b8924a 100%)" }}
-        aria-hidden
-      >
-        <svg viewBox="0 0 24 24" className="size-[1.15rem]" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 18V7.5l8 6 8-6V18" />
-        </svg>
-      </span>
-      {!compact && (
-        <span className="leading-none">
-          <span className="display text-[1.15rem] tracking-[-0.04em] text-ink">
-            money<span className="text-champagne">pay</span>
-          </span>
-        </span>
+    <Link
+      href="/"
+      className={`group inline-flex items-center gap-2.5 transition-opacity hover:opacity-95 ${className}`}
+      aria-label="MoneyPayee home"
+    >
+      {compact ? (
+        <Image
+          src="/logo-icon.png"
+          alt="MoneyPayee"
+          width={42}
+          height={36}
+          priority
+          className="h-9 w-auto object-contain"
+        />
+      ) : (
+        <Image
+          src="/logo.png"
+          alt="MoneyPayee"
+          width={154}
+          height={38}
+          priority
+          className="h-9 w-auto object-contain"
+        />
       )}
     </Link>
   );
@@ -45,22 +61,6 @@ export function StatusBadge({ status }: { status: ApplicationStatus }) {
       <Clock3 size={13} /> Under review
     </span>
   );
-}
-
-export function RefundBadge({ status }: { status: RefundStatus }) {
-  if (status === "pending")
-    return (
-      <span className="chip bg-gold-soft text-gold-ink border-gold/25">
-        <RotateCcw size={12} /> Refund due
-      </span>
-    );
-  if (status === "refunded")
-    return (
-      <span className="chip bg-ok-soft text-ok border-ok/15">
-        <CheckCircle2 size={12} /> Refunded
-      </span>
-    );
-  return null;
 }
 
 export function Notice({

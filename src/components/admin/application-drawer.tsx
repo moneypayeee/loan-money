@@ -6,10 +6,11 @@ import { supabase } from "@/lib/supabase";
 import { useSettings } from "@/lib/settings-context";
 import { addDays, appRef, dateOnly, dateTime, errorText, rupees } from "@/lib/format";
 import type { Application, ApplicationEvent, Kyc } from "@/lib/types";
-import { Notice, RefundBadge, StatusBadge } from "../ui";
+import { Notice, StatusBadge } from "../ui";
 import { formatPhone } from "@/lib/phone-auth";
 import { buildTimeline, Timeline } from "../apply/application-card";
 import type { AdminCtx } from "./admin-console";
+import { ApprovalShare } from "./approval-share";
 import { DEMO_KYC } from "./demo-data";
 import { LoanPanel } from "./loan-panel";
 import { whatsappLink } from "./portfolio";
@@ -27,7 +28,6 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
   const [note, setNote] = useState(a.status === "pending" && a.kyc_status === "problem" ? a.kyc_note : "");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
-  const [refundRef, setRefundRef] = useState("");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -47,7 +47,22 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
       .eq("application_id", a.id)
       .order("created_at")
       .then(({ data }) => setEvents((data ?? []) as ApplicationEvent[]));
-  }, [a.id, a.status, a.refund_status]);
+  }, [a.id, a.status]);
+
+  // Was this UTR a Razorpay payment confirmed by our server? (null = not found / table not set up)
+  const [rzp, setRzp] = useState<{ amount_paise: number; status: string; verified_at: string } | null>(null);
+  useEffect(() => {
+    setRzp(null);
+    if (!supabase || !a.transaction_id) return;
+    void supabase
+      .from("razorpay_payments")
+      .select("amount_paise,status,verified_at")
+      .eq("utr", a.transaction_id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data) setRzp(data as { amount_paise: number; status: string; verified_at: string });
+      });
+  }, [a.transaction_id]);
 
   async function loadDocs() {
     if (ctx.demo) {
@@ -69,14 +84,24 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
       setKyc((data as Kyc) ?? null);
       if (data) {
         const k = data as Kyc;
-        const list: [string, string | null][] = [
-          [`${k.identity_type} — front`, k.identity_path],
-          [`${k.identity_type} — back`, k.identity_back_path],
-          ["Address proof", k.address_path],
+        const list: [string, string | null | undefined][] = [
+          [`Main ID: ${k.identity_type} — front`, k.identity_path],
+          [`Main ID: ${k.identity_type} — back`, k.identity_back_path],
+          ["Aadhaar Card — front", k.address_path],
+          ["Aadhaar Card — back", k.aadhaar_back_path],
+          ["PAN Card", k.pan_path],
+          ["Driving Licence", k.driving_path],
+          ["ID Card / Voter ID — front", k.id_card_path],
+          ["ID Card / Voter ID — back", k.id_card_back_path],
           ["Student ID", k.student_path],
         ];
         const signed: Doc[] = [];
-        for (const [label, path] of list) if (path) signed.push({ label, url: await sign("kyc-documents", path), pdf: path.endsWith(".pdf") });
+        const seen = new Set<string>();
+        for (const [label, path] of list) {
+          if (!path || seen.has(path)) continue; // the same file can fill two slots (e.g. licence used as main ID)
+          seen.add(path);
+          signed.push({ label, url: await sign("kyc-documents", path), pdf: path.endsWith(".pdf") });
+        }
         setDocs(signed);
       }
     } catch (e) {
@@ -105,9 +130,9 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
         kyc_verified: kycOk,
         admin_note: note.trim(),
         reviewed_at: new Date().toISOString(),
-        refund_status: decision === "rejected" && paid ? "pending" : "not_applicable",
+        refund_status: "not_applicable",
       });
-      ctx.toast("ok", `Demo: ${a.full_name} ${decision === "accepted" ? "approved" : paid ? "declined, refund queued" : "declined, no refund"}. Not saved.`);
+      ctx.toast("ok", `Demo: ${a.full_name} ${decision === "accepted" ? "approved" : "declined"}. Not saved.`);
       return;
     }
     if (!supabase) return;
@@ -126,47 +151,25 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
       "ok",
       decision === "accepted"
         ? `${a.full_name}'s application approved.`
-        : paid
-          ? `${a.full_name}'s application declined. ₹${a.fee} refund added to the queue.`
-          : `${a.full_name}'s application declined. No refund queued (payment not found).`,
+        : `${a.full_name}'s application declined.`,
     );
     await ctx.reload();
   }
 
-  async function markRefunded() {
-    if (ctx.demo) {
-      ctx.patch(a.id, { refund_status: "refunded", refund_reference: refundRef.toUpperCase(), refunded_at: new Date().toISOString() });
-      ctx.toast("ok", `Demo: refund recorded for ${a.full_name}. Not saved.`);
-      setRefundRef("");
-      return;
-    }
-    if (!supabase) return;
-    setBusy("refund");
-    setErr("");
-    const { error } = await supabase.rpc("admin_mark_refunded", { p_id: a.id, p_reference: refundRef });
-    setBusy(null);
-    if (error) return setErr(errorText(error));
-    ctx.toast("ok", `Refund recorded for ${a.full_name}.`);
-    setRefundRef("");
-    await ctx.reload();
-  }
-
   const opened = kyc !== undefined;
-  const refundDays = site?.refund_days ?? 7;
-  const company = site?.company_name ?? "Money Pay";
+  const company = site?.company_name ?? "MoneyPayee";
   const first = a.full_name.split(" ")[0];
   const waText =
     a.status === "pending"
-      ? `Hello ${first}, this is ${company}. We have received your loan application ${appRef(a)} and it is being reviewed. We will update you within 24–48 hours.`
+      ? `Hello ${first}, this is ${company}. We have received your loan application ${appRef(a)} and it is being reviewed for an instant loan in 48 hours.`
       : a.status === "accepted"
         ? `Hello ${first}, this is ${company}. Good news: your application ${appRef(a)} has been approved and passed to ${a.lender_name ?? site?.lender_name ?? "our lending partner"}, who will contact you with the loan offer.`
-        : `Hello ${first}, this is ${company}. Your application ${appRef(a)} was not approved: ${a.admin_note}` +
-          (a.refund_status === "pending" ? ` Your ₹${a.fee} fee will be refunded to ${a.refund_upi_id ?? "your UPI account"} within ${refundDays} days.` : "");
+        : `Hello ${first}, this is ${company}. Your application ${appRef(a)} was not approved: ${a.admin_note}`;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`Application from ${a.full_name}`}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-white/10 bg-[#080b13] shadow-2xl animate-[rise_.35s_cubic-bezier(.16,1,.3,1)_both]">
+      <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-white/10 bg-[#07100a] shadow-2xl animate-[rise_.35s_cubic-bezier(.16,1,.3,1)_both]">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b hairline bg-white/[0.02] px-5 py-5 sm:px-7">
           <div className="min-w-0">
@@ -174,7 +177,6 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
             <h2 className="display mt-1 truncate text-2xl">{a.full_name}</h2>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <StatusBadge status={a.status} />
-              <RefundBadge status={a.refund_status} />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" className="btn btn-outline btn-sm" onClick={() => ctx.openCustomer(a.user_id)}>
@@ -184,6 +186,11 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
                 <MessageCircle size={14} /> WhatsApp update
               </a>
             </div>
+            {a.status === "accepted" && (
+              <div className="mt-3">
+                <ApprovalShare app={a} ctx={ctx} email={a.contact_email || (kyc as { email?: string } | null | undefined)?.email} />
+              </div>
+            )}
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close panel">
             <X size={18} />
@@ -194,15 +201,25 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
           {err && <Notice tone="bad" onClose={() => setErr("")}>{err}</Notice>}
 
           <Section title="Applicant">
-            <Grid
-              rows={[
+            {(() => {
+              const rows: [string, React.ReactNode][] = [
                 ["Requested", rupees(a.requested_amount)],
                 ["Category", a.category],
                 ["Mobile", <a key="p" className="text-brand hover:underline" href={`tel:+91${a.phone}`}>+91 {a.phone}</a>],
-                ["Submitted", dateTime(a.created_at)],
-                ...(kyc ? ([["Date of birth", kyc.dob], ["ID", `${kyc.identity_type} ···· ${kyc.identity_last4}`]] as [string, string][]) : []),
-              ]}
-            />
+              ];
+              if ((kyc as any)?.alt_phone) {
+                rows.push(["Alt Mobile", <a key="ap" className="text-brand hover:underline" href={`tel:+91${(kyc as any).alt_phone}`}>+91 {(kyc as any).alt_phone}</a>]);
+              }
+              if (a.contact_email || (kyc as any)?.email) {
+                rows.push(["Email ID", String(a.contact_email || (kyc as any)?.email)]);
+              }
+              rows.push(["Submitted", dateTime(a.created_at)]);
+              if (kyc) {
+                rows.push(["Date of birth", kyc.dob]);
+                rows.push(["Main ID", `${kyc.identity_type} ···· ${kyc.identity_last4}`]);
+              }
+              return <Grid rows={rows} />;
+            })()}
             {kyc && (
               <p className="mt-3 rounded-lg bg-paper px-3 py-2.5 text-sm leading-relaxed">
                 {kyc.address}, {kyc.city}, {kyc.state} {kyc.pincode}
@@ -216,8 +233,18 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
               rows={[
                 ["Fee", `₹${a.fee}`],
                 ["UTR", <CopyText key="u" text={a.transaction_id} />],
+                [
+                  "Razorpay",
+                  rzp ? (
+                    <span key="rz" className="inline-flex items-center gap-1 font-semibold text-emerald-400">
+                      <Check className="size-3.5" /> Verified by Razorpay · {rupees(Math.round(rzp.amount_paise / 100))} · {dateTime(rzp.verified_at)}
+                    </span>
+                  ) : (
+                    <span key="rz" className="text-muted">Not a verified Razorpay payment — check the UTR manually</span>
+                  ),
+                ],
                 ["Paid to", `${a.payee_name} · ${a.upi_id}`],
-                ["Refund UPI", a.refund_upi_id ? <CopyText key="r" text={a.refund_upi_id} /> : "Not provided (older application)"],
+                ["Applicant UPI", a.refund_upi_id ? <CopyText key="r" text={a.refund_upi_id} /> : "—"],
               ]}
             />
             <p className="mt-3 text-xs leading-relaxed text-muted">
@@ -307,13 +334,6 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
                 </label>
                 <textarea id="decision-note" rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Address proof is older than 3 months. Please reapply with a recent bill." />
               </div>
-              {paid !== null && (
-                <p className="mt-3 rounded-lg bg-paper px-3 py-2.5 text-xs leading-relaxed text-ink-2">
-                  {paid
-                    ? `If declined, a ₹${a.fee} refund to ${a.refund_upi_id ?? "the paying UPI account"} is added to the refund queue (due within ${refundDays} days).`
-                    : "If declined, no refund is queued and the applicant is told the payment could not be found."}
-                </p>
-              )}
               {!(paid === true && kycOk) && (
                 <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
                   <p className="text-xs font-semibold text-ink-2">To approve, complete these steps:</p>
@@ -345,25 +365,10 @@ export function ApplicationDrawer({ app: a, ctx, onClose }: { app: Application; 
             </Section>
           )}
 
-          {a.refund_status === "pending" && (
-            <Section title="Refund">
-              <p className="text-sm leading-relaxed">
-                Send <strong>₹{a.fee}</strong> to <CopyText text={a.refund_upi_id ?? "the paying UPI account"} /> by{" "}
-                <strong>{a.reviewed_at ? dateOnly(addDays(a.reviewed_at, refundDays)) : "—"}</strong>, then record the refund UTR.
-              </p>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <input className="font-mono" value={refundRef} maxLength={40} onChange={(e) => setRefundRef(e.target.value.replace(/[^A-Za-z0-9]/g, ""))} placeholder="Refund UTR" aria-label="Refund UTR" />
-                <button type="button" className="btn btn-dark shrink-0" disabled={!!busy || refundRef.length < 6} onClick={() => void markRefunded()}>
-                  {busy === "refund" ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />} Mark refunded
-                </button>
-              </div>
-            </Section>
-          )}
-
           {a.status === "accepted" && <LoanPanel app={a} ctx={ctx} />}
 
           <Section title="Timeline">
-            <Timeline steps={buildTimeline(a, events, refundDays)} />
+            <Timeline steps={buildTimeline(a, events)} />
           </Section>
         </div>
       </div>

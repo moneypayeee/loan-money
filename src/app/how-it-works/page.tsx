@@ -3,11 +3,12 @@ import Link from "next/link";
 import { ArrowRight, CarFront, Check, Clock3, FileCheck2, GraduationCap, ImageIcon, QrCode, ScanSearch, UserPlus, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { DisclosureCard } from "@/components/lender-disclosure";
-import { LenderName, RefundDays } from "@/components/settings-text";
+import { LenderName } from "@/components/settings-text";
+import { ReferralSection } from "@/components/refer/referral-section";
 
 export const metadata: Metadata = {
   title: "How it works",
-  description: "The four steps from account to decision, what documents you need, and how the refundable ₹299 fee works.",
+  description: "The four steps from account to decision, what documents you need, and how the one-time ₹299 fee works.",
 };
 
 const STEPS = [
@@ -24,12 +25,12 @@ const STEPS = [
   {
     icon: QrCode,
     title: "Pay the ₹299 application fee",
-    body: "Scan the QR with any UPI app and pay ₹299. Check that the payee name matches what's shown on the page. Then enter the UTR from your UPI app, upload the payment screenshot, and give us a UPI ID for refunds.",
+    body: "Scan the QR with any UPI app and pay ₹299. Check that the payee name matches what's shown on the page. Then enter the UTR from your UPI app, upload the payment screenshot, and provide your UPI ID for verification.",
   },
   {
     icon: ScanSearch,
-    title: "Review and decision in 24–48 hours",
-    body: "Our team checks your documents and confirms the payment in our account. If approved, your application goes to the lender, who contacts you with a loan offer and Key Fact Statement. If not approved, you get a note explaining why and a full refund.",
+    title: "Instant loan in 48 hours",
+    body: "Our team checks your documents and confirms the payment in our account. If approved, your application goes to the lender, who contacts you with a loan offer and Key Fact Statement. If not approved, you receive a clear explanation of the decision.",
   },
 ];
 
@@ -45,7 +46,7 @@ export default function HowItWorksPage() {
       {/* Compact application summary: a horizontal treatment, distinct from the home-page flyer. */}
       <section className="section-blue overflow-hidden">
         <div className="shell py-6 sm:py-8">
-          <div className="relative grid gap-5 overflow-hidden rounded-2xl border border-gold/25 bg-[#101a3c] p-4 sm:p-6 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+          <div className="relative grid gap-5 overflow-hidden rounded-2xl border border-gold/25 bg-[#0a140e] p-4 sm:p-6 lg:grid-cols-[auto_1fr_auto] lg:items-center">
             <div className="flex items-center gap-3 lg:pr-5">
               <span className="grid size-14 shrink-0 place-items-center rounded-full border-4 border-emerald-500/80 bg-emerald-400/10 text-emerald-300">
                 <span className="text-center"><span className="display block text-xl font-black leading-none">5</span><span className="text-[0.5rem] font-bold uppercase">min</span></span>
@@ -60,7 +61,7 @@ export default function HowItWorksPage() {
               <p className="mt-1 text-sm leading-relaxed text-muted">No CIBIL score is requested on the form. Upload your ID and address proof digitally; extra documents depend on your category.</p>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end lg:pl-2">
-              <p className="flex items-center gap-2 text-xs leading-snug text-ink-2"><Clock3 size={17} className="shrink-0 text-gold" /><span><strong className="text-ink">Review: 24–48 hours</strong><br />Lender makes the final decision</span></p>
+              <p className="flex items-center gap-2 text-xs leading-snug text-ink-2"><Clock3 size={17} className="shrink-0 text-gold" /><span><strong className="text-ink">Instant loan: In 48 hours</strong><br />Lender makes the final decision</span></p>
               <Link href="/apply" className="btn btn-gold btn-sm">Apply now <ArrowRight size={15} /></Link>
             </div>
           </div>
@@ -122,7 +123,7 @@ export default function HowItWorksPage() {
       {/* ============================ FEE — white ============================ */}
       <section className="theme-light">
         <div className="shell py-14 sm:py-[4.5rem]">
-          <SectionHead eyebrow="The fee" title="₹299," accent="refundable if you're not approved." />
+          <SectionHead eyebrow="The fee" title="₹299," accent="one-time verification fee." />
           <div className="mt-9 grid items-start gap-6 lg:grid-cols-2">
             <div className="card card-glow p-6 sm:p-8">
               <p className="text-[0.7rem] font-bold uppercase tracking-[0.18em] text-muted">Application fee</p>
@@ -133,12 +134,8 @@ export default function HowItWorksPage() {
               <ul className="mt-6 space-y-3.5 text-[0.95rem] leading-relaxed text-ink-2">
                 <Point>Paid once, by UPI, to the payee shown on the application page.</Point>
                 <Point>It pays for manual checks of your documents and payment. It is not interest and is not taken from your loan.</Point>
-                <Point>
-                  If your application is not approved, the full ₹299 goes back to the UPI ID you give us within <RefundDays /> days. The refund reference appears on your
-                  application.
-                </Point>
-                <Point>If we can&rsquo;t find your payment, no refund is due. Contact the grievance officer with your UTR and we&rsquo;ll look into it.</Point>
-                <Point>We will never ask you for any other payment.</Point>
+                <Point>The fee covers the cost of identity, document, and payment verification. It is non-refundable.</Point>
+                <Point>We will never ask you for any other payment or deposit.</Point>
               </ul>
             </div>
             <div>
@@ -154,6 +151,9 @@ export default function HowItWorksPage() {
           </div>
         </div>
       </section>
+
+      {/* ============================ REFERRAL ============================= */}
+      <ReferralSection />
     </main>
   );
 }

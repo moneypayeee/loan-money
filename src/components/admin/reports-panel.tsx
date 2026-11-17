@@ -49,13 +49,11 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
     const approved = decided.filter((a) => a.status === "accepted");
     const declined = decided.filter((a) => a.status === "rejected");
     const feesIn = decided.filter((a) => a.payment_verified);
-    const refunds = ctx.apps.filter((a) => a.refunded_at && inR(istDay(a.refunded_at)));
     const disbursed = ctx.loanRows.filter((l) => inR(l.loan.disbursed_on));
-    const emis = ctx.payments.filter((p) => inR(p.paid_on));
     const reviewHours = decided.map((a) => (Date.parse(a.reviewed_at!) - Date.parse(a.created_at)) / 36e5);
 
     // Month-by-month breakdown
-    const months = new Map<string, { apps: number; approved: number; declined: number; fees: number; refunds: number; disbursed: number; emis: number }>();
+    const months = new Map<string, { apps: number; approved: number; declined: number; fees: number; disbursed: number }>();
     const bump = (d: string, k: keyof ReturnType<typeof empty>, v = 1) => {
       const key = d.slice(0, 7);
       const row = months.get(key) ?? empty();
@@ -63,15 +61,13 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
       months.set(key, row);
     };
     function empty() {
-      return { apps: 0, approved: 0, declined: 0, fees: 0, refunds: 0, disbursed: 0, emis: 0 };
+      return { apps: 0, approved: 0, declined: 0, fees: 0, disbursed: 0 };
     }
     apps.forEach((a) => bump(istDay(a.created_at), "apps"));
     approved.forEach((a) => bump(istDay(a.reviewed_at!), "approved"));
     declined.forEach((a) => bump(istDay(a.reviewed_at!), "declined"));
     feesIn.forEach((a) => bump(istDay(a.reviewed_at!), "fees", a.fee));
-    refunds.forEach((a) => bump(istDay(a.refunded_at!), "refunds", a.fee));
     disbursed.forEach((l) => bump(l.loan.disbursed_on!, "disbursed", l.loan.disbursed_amount ?? l.loan.sanctioned_amount ?? 0));
-    emis.forEach((p) => bump(p.paid_on, "emis", p.amount));
 
     const byCat = CATEGORIES.map((c) => {
       const d = decided.filter((a) => a.category === c);
@@ -85,9 +81,7 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
       approved,
       declined,
       feesIn,
-      refunds,
       disbursed,
-      emis,
       avgReview: reviewHours.length ? Math.round((reviewHours.reduce((s, h) => s + h, 0) / reviewHours.length) * 10) / 10 : null,
       months: [...months.entries()].sort((a, b) => b[0].localeCompare(a[0])),
       byCat,
@@ -96,9 +90,7 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
   }, [ctx.apps, ctx.loanRows, ctx.payments, start, end]);
 
   const feeTotal = r.feesIn.reduce((s, a) => s + a.fee, 0);
-  const refundTotal = r.refunds.reduce((s, a) => s + a.fee, 0);
   const disbTotal = r.disbursed.reduce((s, l) => s + (l.loan.disbursed_amount ?? l.loan.sanctioned_amount ?? 0), 0);
-  const emiTotal = r.emis.reduce((s, p) => s + p.amount, 0);
   const approvalRate = r.decided.length ? Math.round((r.approved.length / r.decided.length) * 100) : null;
   const tag = `${start}_to_${end}`;
   const names = new Map(ctx.apps.map((a) => [a.id, a]));
@@ -116,24 +108,13 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
         ),
     },
     {
-      label: "Refunds sent",
-      note: "Refunded in this period",
-      n: r.refunds.length,
-      run: () =>
-        downloadCsv(
-          `refunds-${tag}.csv`,
-          ["Refunded at", "Reference", "Name", "Mobile", "Amount", "Refund UPI", "Refund UTR", "Original UTR"],
-          r.refunds.map((a) => [a.refunded_at, appRef(a), a.full_name, a.phone, a.fee, a.refund_upi_id ?? "", a.refund_reference ?? "", a.transaction_id]),
-        ),
-    },
-    {
       label: "Loans disbursed",
       note: "Disbursed in this period",
       n: r.disbursed.length,
       run: () =>
         downloadCsv(
           `disbursements-${tag}.csv`,
-          ["Disbursed on", "Loan account no", "Reference", "Borrower", "Mobile", "Sanctioned", "Credited", "Credited to", "Rate %", "Tenure", "EMI", "First EMI"],
+          ["Disbursed on", "Loan account no", "Reference", "Borrower", "Mobile", "Sanctioned", "Credited", "Credited to", "Rate %", "Tenure"],
           r.disbursed.map((l) => [
             l.loan.disbursed_on,
             l.loan.loan_account_no,
@@ -145,24 +126,7 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
             l.loan.disbursed_to,
             l.loan.interest_rate != null ? Number(l.loan.interest_rate) : "",
             l.loan.tenure_months,
-            l.rows[0]?.emi ?? l.loan.emi_amount,
-            l.loan.first_emi_date,
           ]),
-        ),
-    },
-    {
-      label: "EMI payments",
-      note: "Paid in this period",
-      n: r.emis.length,
-      run: () =>
-        downloadCsv(
-          `emi-payments-${tag}.csv`,
-          ["Paid on", "Borrower", "Mobile", "Reference", "Loan account no", "EMI no", "Amount", "Payment reference"],
-          r.emis.map((p) => {
-            const a = names.get(p.application_id);
-            const l = ctx.loans.find((x) => x.application_id === p.application_id);
-            return [p.paid_on, a?.full_name ?? "", a?.phone ?? "", a ? appRef(a) : "", l?.loan_account_no ?? "", p.instalment_no, p.amount, p.reference];
-          }),
         ),
     },
   ];
@@ -202,8 +166,8 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Stat label="Applications" value={String(r.apps.length)} foot={`${r.decided.length} decided · avg ${r.avgReview ?? "—"} h`} />
         <Stat label="Approval rate" value={approvalRate == null ? "—" : `${approvalRate}%`} foot={`${r.approved.length} approved · ${r.declined.length} declined`} tone="ok" />
-        <Stat label="Fees kept" value={rupees(feeTotal - refundTotal)} foot={`${rupees(feeTotal)} confirmed · ${rupees(refundTotal)} refunded`} tone="gold" />
-        <Stat label="Loans" value={rupeesShort(disbTotal)} foot={`${plural(r.disbursed.length, "loan")} disbursed · ${rupeesShort(emiTotal)} EMIs in`} />
+        <Stat label="Fees confirmed" value={rupees(feeTotal)} foot={`${r.feesIn.length} verified fee payments`} tone="gold" />
+        <Stat label="Loans" value={rupeesShort(disbTotal)} foot={`${plural(r.disbursed.length, "loan")} disbursed by banks`} />
       </section>
 
       <section className="card overflow-hidden">
@@ -220,9 +184,7 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
                   <th className="px-4 py-3 font-semibold">Approved</th>
                   <th className="px-4 py-3 font-semibold">Declined</th>
                   <th className="px-4 py-3 font-semibold">Fees confirmed</th>
-                  <th className="px-4 py-3 font-semibold">Refunds sent</th>
-                  <th className="px-4 py-3 font-semibold">Disbursed</th>
-                  <th className="px-5 py-3 font-semibold sm:px-6">EMIs collected</th>
+                  <th className="px-5 py-3 font-semibold sm:px-6">Disbursed by bank</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-right tabular-nums">
@@ -233,9 +195,7 @@ export function ReportsPanel({ ctx }: { ctx: AdminCtx }) {
                     <td className="px-4 py-3 text-ok">{v.approved}</td>
                     <td className="px-4 py-3">{v.declined}</td>
                     <td className="px-4 py-3">{rupees(v.fees)}</td>
-                    <td className="px-4 py-3">{rupees(v.refunds)}</td>
-                    <td className="px-4 py-3">{rupees(v.disbursed)}</td>
-                    <td className="px-5 py-3 font-semibold sm:px-6">{rupees(v.emis)}</td>
+                    <td className="px-5 py-3 sm:px-6">{rupees(v.disbursed)}</td>
                   </tr>
                 ))}
               </tbody>

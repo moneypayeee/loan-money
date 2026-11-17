@@ -1,7 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Circle, Clock3, FileSearch, RotateCcw, ThumbsUp, XCircle } from "lucide-react";
-import { useSettings } from "@/lib/settings-context";
+import { AlertTriangle, CheckCircle2, Clock3, FileSearch, ReceiptIndianRupee, ThumbsUp, XCircle } from "lucide-react";
 import { formatPhone } from "@/lib/phone-auth";
 import { addDays, rupees, rupeesShort, timeAgo } from "@/lib/format";
 import type { AdminCtx } from "./admin-console";
@@ -9,53 +8,21 @@ import { plural, Stat } from "./kit";
 
 export function Overview({ ctx }: { ctx: AdminCtx }) {
   const { stats, apps } = ctx;
-  const { site, payment, disclosed } = useSettings();
   if (!stats) return null;
-  const refundDays = site?.refund_days ?? 7;
   const now = Date.now();
   const overdue = apps.filter((a) => a.status === "pending" && now - new Date(a.created_at).getTime() > 48 * 3600e3);
-  const lateRefunds = apps.filter((a) => a.refund_status === "pending" && a.reviewed_at && new Date(addDays(a.reviewed_at, refundDays)).getTime() < now);
-  const setup = [
-    { done: disclosed, label: "Publish lender name & RBI registration" },
-    { done: Boolean(site?.grievance_officer && site?.grievance_email), label: "Add grievance officer contact" },
-    { done: Boolean(payment?.qr_path && payment?.upi_id), label: "Publish payment QR & UPI ID" },
-  ];
-  const setupDone = setup.every((s) => s.done);
-
   return (
     <div className="space-y-4">
-      {!setupDone && (
-        <section className="card card-glow p-6 sm:p-7">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="display text-lg">Finish setup to open applications</h2>
-            <span className="chip border-gold/30 bg-gold-soft text-gold-ink">{setup.filter((x) => x.done).length} of {setup.length} done</span>
-          </div>
-          <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full rounded-full bg-gradient-to-r from-gold to-brand" style={{ width: `${(setup.filter((x) => x.done).length / setup.length) * 100}%` }} /></div>
-          <ul className="mt-4 space-y-2.5">
-            {setup.map((s) => (
-              <li key={s.label} className="flex items-center gap-3 text-sm">
-                {s.done ? <CheckCircle2 size={17} className="text-ok" /> : <Circle size={17} className="text-faint" />}
-                <span className={s.done ? "text-muted line-through" : "font-medium"}>{s.label}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-5 text-sm text-muted">
-            Fill these in <span className="font-mono text-ink-2">src/config/site.ts</span>, then run <span className="font-mono text-ink-2">npm run sync-settings</span>.
-          </p>
-        </section>
-      )}
-
       <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Kpi icon={<Clock3 size={17} />} label="Awaiting review" value={stats.pending} foot={stats.overdue ? `${stats.overdue} older than 48 h` : "All within 48 h"} alert={stats.overdue > 0} onClick={() => ctx.go("applications", "pending")} />
         <Kpi icon={<ThumbsUp size={17} />} label="Approved" value={stats.accepted} foot={`${rupees(stats.accepted_volume)} requested`} onClick={() => ctx.go("applications", "accepted")} />
         <Kpi icon={<XCircle size={17} />} label="Not approved" value={stats.rejected} foot={`${stats.total} applications in total`} onClick={() => ctx.go("applications", "rejected")} />
         <Kpi
-          icon={<RotateCcw size={17} />}
-          label="Refunds due"
-          value={stats.refunds_pending}
-          foot={stats.refunds_pending ? `${rupees(stats.refunds_pending_amount)} to send` : `${rupees(stats.refunded_amount)} refunded so far`}
-          alert={lateRefunds.length > 0}
-          onClick={() => ctx.go("refunds")}
+          icon={<ReceiptIndianRupee size={17} />}
+          label="Fees collected"
+          value={apps.filter((a) => a.payment_verified).length}
+          foot={`${rupees(apps.filter((a) => a.payment_verified).reduce((s, a) => s + a.fee, 0))} confirmed`}
+          onClick={() => ctx.go("fees")}
         />
       </section>
 
@@ -76,15 +43,12 @@ export function Overview({ ctx }: { ctx: AdminCtx }) {
 
         <section className="card p-6">
           <h2 className="display text-lg">Needs attention</h2>
-          {overdue.length === 0 && lateRefunds.length === 0 ? (
+          {overdue.length === 0 ? (
             <p className="mt-4 flex items-center gap-2 text-sm text-muted">
               <CheckCircle2 size={16} className="text-ok" /> Nothing overdue. Nice work.
             </p>
           ) : (
             <ul className="mt-4 divide-y divide-line">
-              {lateRefunds.map((a) => (
-                <AttentionRow key={"r" + a.id} icon={<RotateCcw size={15} />} title={`Refund overdue · ${a.full_name}`} sub={`${formatPhone(a.phone)} · ₹${a.fee} to ${a.refund_upi_id ?? "—"}`} onClick={() => ctx.open(a.id)} />
-              ))}
               {overdue.map((a) => (
                 <AttentionRow key={a.id} icon={<AlertTriangle size={15} />} title={`Review overdue · ${a.full_name}`} sub={`${formatPhone(a.phone)} · submitted ${timeAgo(a.created_at)}`} onClick={() => ctx.open(a.id)} />
               ))}
@@ -243,32 +207,24 @@ function KycPending({ ctx }: { ctx: AdminCtx }) {
 }
 
 
-/** Loan book at a glance: links into Loans and Collections. */
+/** Bank loans at a glance (EMIs and collections are handled by the partner bank). */
 function LoanBook({ ctx }: { ctx: AdminCtx }) {
   const open = ctx.loanRows.filter((l) => l.loan.status !== "closed");
-  const overdue = open.filter((l) => l.overdueCount > 0);
-  const outstanding = open.reduce((s, l) => s + l.outstanding, 0);
-  const overdueAmt = overdue.reduce((s, l) => s + l.overdueAmount, 0);
-  const in7 = open.flatMap((l) => l.rows.filter((r) => r.status !== "paid" && r.date >= ctx.today && Date.parse(r.date) - Date.parse(ctx.today) <= 7 * 864e5));
-  const month = ctx.today.slice(0, 7);
-  const collected = ctx.payments.filter((p) => p.paid_on.slice(0, 7) === month).reduce((s, p) => s + p.amount, 0);
+  const sanctioned = ctx.loanRows.reduce((s, l) => s + (l.loan.sanctioned_amount ?? 0), 0);
+  const disbursedRows = ctx.loanRows.filter((l) => l.loan.disbursed_on);
+  const disbursed = disbursedRows.reduce((s, l) => s + (l.loan.disbursed_amount ?? l.loan.sanctioned_amount ?? 0), 0);
   const noLoan = ctx.apps.filter((a) => a.status === "accepted" && !ctx.loanRows.some((l) => l.app.id === a.id)).length;
   if (!ctx.loanRows.length && !noLoan) return null;
   return (
     <section>
       <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="display text-lg">Loan book</h2>
-        {noLoan > 0 && (
-          <button type="button" className="text-sm font-semibold text-gold hover:underline" onClick={() => ctx.go("loans")}>
-            {noLoan} approved without loan details
-          </button>
-        )}
+        <h2 className="display text-lg">Bank loans</h2>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <Stat label="Outstanding" value={rupeesShort(outstanding)} foot={plural(open.length, "open loan")} tone="gold" onClick={() => ctx.go("loans")} />
-        <Stat label="Overdue" value={rupeesShort(overdueAmt)} foot={`${plural(overdue.length, "borrower")} late`} tone={overdue.length ? "bad" : "ok"} onClick={() => ctx.go("collections")} />
-        <Stat label="Due next 7 days" value={rupeesShort(in7.reduce((s, r) => s + r.emi, 0))} foot={plural(in7.length, "EMI")} onClick={() => ctx.go("collections")} />
-        <Stat label="Collected this month" value={rupeesShort(collected)} foot="EMIs recorded as paid" tone="ok" onClick={() => ctx.go("reports")} />
+        <Stat label="Open loans" value={String(open.length)} foot={`${ctx.loanRows.length} recorded`} onClick={() => ctx.go("loans")} />
+        <Stat label="Sanctioned" value={rupeesShort(sanctioned)} foot="By partner banks" tone="gold" onClick={() => ctx.go("loans")} />
+        <Stat label="Disbursed" value={rupeesShort(disbursed)} foot={plural(disbursedRows.length, "loan")} tone="ok" onClick={() => ctx.go("loans")} />
+        <Stat label="Details missing" value={String(noLoan)} foot="Approved, no bank details yet" tone={noLoan ? "warn" : "default"} onClick={() => ctx.go("loans")} />
       </div>
     </section>
   );

@@ -92,6 +92,14 @@ export type Kyc = {
   address_path: string;
   student_path: string | null;
   consent_at: string;
+  /** Saved for applications submitted after the KYC-storage fix (null on older ones). */
+  aadhaar_back_path?: string | null;
+  pan_path?: string | null;
+  driving_path?: string | null;
+  id_card_path?: string | null;
+  id_card_back_path?: string | null;
+  alt_phone?: string | null;
+  email?: string | null;
 };
 
 export type DashboardStats = {

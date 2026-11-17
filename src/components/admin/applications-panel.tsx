@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import { appRef, rupees, timeAgo } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
-import { RefundBadge, StatusBadge } from "../ui";
+import { StatusBadge } from "../ui";
 import { formatPhone } from "@/lib/phone-auth";
 import type { AdminCtx } from "./admin-console";
 import { ExportButton, Pill } from "./kit";
 import { KYC_STATUS } from "./kyc-panel";
+import { ApprovalQuickActions } from "./approval-share";
 
 const FILTERS = [
   ["pending", "Under review"],
@@ -35,8 +36,8 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
   function exportCsv() {
     downloadCsv(
       `applications-${filter}-${ctx.today}.csv`,
-      ["Submitted", "Reference", "Name", "Mobile", "Email", "Category", "Requested", "UTR", "Status", "Payment confirmed", "KYC", "Decided at", "Refund", "Note to applicant"],
-      rows.map((a) => [a.created_at, appRef(a), a.full_name, a.phone, a.contact_email ?? "", a.category, a.requested_amount, a.transaction_id, a.status, a.payment_verified ? "Yes" : "No", KYC_STATUS[a.kyc_status].label, a.reviewed_at ?? "", a.refund_status, a.admin_note]),
+      ["Submitted", "Reference", "Name", "Mobile", "Email", "Category", "Requested", "UTR", "Status", "Payment confirmed", "KYC", "Decided at", "Note to applicant"],
+      rows.map((a) => [a.created_at, appRef(a), a.full_name, a.phone, a.contact_email ?? "", a.category, a.requested_amount, a.transaction_id, a.status, a.payment_verified ? "Yes" : "No", KYC_STATUS[a.kyc_status].label, a.reviewed_at ?? "", a.admin_note]),
     );
   }
 
@@ -70,7 +71,8 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
         ) : (
           <>
             {/* Desktop table */}
-            <table className="hidden w-full text-sm md:table">
+            <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="border-b hairline bg-white/[0.02] text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Applicant</th>
@@ -78,6 +80,7 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
                   <th className="px-5 py-3 font-semibold">UTR</th>
                   <th className="px-5 py-3 font-semibold">Status</th>
                   <th className="px-5 py-3 font-semibold">Submitted</th>
+                  <th className="px-5 py-3 font-semibold">Send approval</th>
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -100,10 +103,12 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
                         <div className="flex flex-wrap gap-1.5">
                           <StatusBadge status={a.status} />
                           {a.status === "pending" && <Pill tone={KYC_STATUS[a.kyc_status].tone}>{KYC_STATUS[a.kyc_status].label}</Pill>}
-                          <RefundBadge status={a.refund_status} />
                         </div>
                       </td>
                       <td className={`px-5 py-3.5 text-xs ${late ? "font-semibold text-bad" : "text-muted"}`}>{timeAgo(a.created_at)}</td>
+                      <td className="whitespace-nowrap px-5 py-3.5">
+                        <ApprovalQuickActions app={a} ctx={ctx} />
+                      </td>
                       <td className="pr-4 text-faint">
                         <ChevronRight size={16} />
                       </td>
@@ -112,11 +117,12 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
                 })}
               </tbody>
             </table>
+            </div>
             {/* Mobile list */}
             <ul className="divide-y divide-line md:hidden">
               {rows.map((a) => (
-                <li key={a.id}>
-                  <button type="button" onClick={() => ctx.open(a.id)} className="w-full px-4 py-4 text-left">
+                <li key={a.id} className="px-4 py-4">
+                  <button type="button" onClick={() => ctx.open(a.id)} className="w-full text-left">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{a.full_name}</p>
@@ -129,9 +135,13 @@ export function ApplicationsPanel({ ctx, filter, setFilter }: { ctx: AdminCtx; f
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <StatusBadge status={a.status} />
                       {a.status === "pending" && <Pill tone={KYC_STATUS[a.kyc_status].tone}>{KYC_STATUS[a.kyc_status].label}</Pill>}
-                      <RefundBadge status={a.refund_status} />
                     </div>
                   </button>
+                  {a.status === "accepted" && (
+                    <div className="mt-3">
+                      <ApprovalQuickActions app={a} ctx={ctx} />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

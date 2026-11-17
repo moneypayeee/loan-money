@@ -10,12 +10,12 @@ const sora = Sora({ subsets: ["latin"], variable: "--font-sora", display: "swap"
 const instrument = Instrument_Serif({ subsets: ["latin"], weight: "400", style: ["normal", "italic"], variable: "--font-instrument", display: "swap" });
 
 export const metadata: Metadata = {
-  title: { default: "Money Pay — Apply for a loan with a regulated lender", template: "%s · Money Pay" },
+  title: { default: "MoneyPayee — Apply for a loan with a regulated lender", template: "%s · MoneyPayee" },
   description:
-    "Apply online in minutes. Your application is reviewed within 24–48 hours and the ₹299 application fee is refunded in full if you are not approved.",
+    "Apply online in minutes. Instant loan in 48 hours handed directly to our RBI-regulated lending partner.",
 };
 
-export const viewport: Viewport = { themeColor: "#06080f", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#050a07", colorScheme: "dark" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

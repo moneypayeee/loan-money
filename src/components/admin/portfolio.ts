@@ -101,7 +101,7 @@ export type Customer = {
   maxDpd: number;
   feesPaid: number;
   /** Most useful one-word state for the list. */
-  state: "overdue" | "borrower" | "closed" | "in_review" | "approved" | "declined";
+  state: "borrower" | "closed" | "in_review" | "approved" | "declined";
 };
 
 export function buildCustomers(apps: Application[], loanRows: LoanRow[]): Customer[] {
@@ -116,10 +116,9 @@ export function buildCustomers(apps: Application[], loanRows: LoanRow[]): Custom
       const loans = sorted.map((a) => loansByApp.get(a.id)).filter((l): l is LoanRow => Boolean(l));
       const openLoans = loans.filter((l) => l.loan.status !== "closed");
       const maxDpd = Math.max(0, ...loans.map((l) => l.dpd));
+      // EMIs are managed by the partner bank, so there is no "overdue" state here.
       const state: Customer["state"] =
-        maxDpd > 0
-          ? "overdue"
-          : openLoans.length
+        openLoans.length
             ? "borrower"
             : loans.length
               ? "closed"
@@ -147,7 +146,7 @@ export function buildCustomers(apps: Application[], loanRows: LoanRow[]): Custom
         outstanding: loans.reduce((s, l) => s + l.outstanding, 0),
         overdueAmount: loans.reduce((s, l) => s + l.overdueAmount, 0),
         maxDpd,
-        feesPaid: sorted.filter((a) => a.payment_verified && a.refund_status !== "refunded").reduce((s, a) => s + a.fee, 0),
+        feesPaid: sorted.filter((a) => a.payment_verified).reduce((s, a) => s + a.fee, 0),
         state,
       };
     })
@@ -155,8 +154,7 @@ export function buildCustomers(apps: Application[], loanRows: LoanRow[]): Custom
 }
 
 export const CUSTOMER_STATE: Record<Customer["state"], { label: string; cls: string }> = {
-  overdue: { label: "EMI overdue", cls: "bg-bad-soft text-bad border-bad/15" },
-  borrower: { label: "Active borrower", cls: "bg-ok-soft text-ok border-ok/15" },
+  borrower: { label: "Loan with bank", cls: "bg-ok-soft text-ok border-ok/15" },
   closed: { label: "Loan closed", cls: "bg-white/[0.05] text-ink-2 border-white/10" },
   in_review: { label: "In review", cls: "bg-warn-soft text-warn border-warn/15" },
   approved: { label: "Approved", cls: "bg-brand-soft text-brand-ink border-brand/15" },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   ArrowLeft,
@@ -10,9 +10,12 @@ import {
   KeyRound,
   BadgeIndianRupee,
   Check,
+  CheckCircle2,
   CircleCheckBig,
   Copy,
+  CreditCard,
   FileCheck2,
+  Gift,
   Loader2,
   QrCode,
   ShieldCheck,
@@ -28,6 +31,11 @@ import { FileDrop, IMAGE_TYPES } from "../file-drop";
 import { LOAN_ESTIMATE } from "@/config/site";
 import { emi } from "@/lib/loan-math";
 import { FieldError, Notice } from "../ui";
+import { checkApplicantExists, checkReferralCode, normalizeReferralCode } from "@/lib/referral-system";
+
+const REF_KEY = "mp-referral-code";
+const DUP_PHONE = "An application with this mobile number already exists. Please contact us on WhatsApp for help.";
+const DUP_EMAIL = "An application with this email ID already exists. Please contact us on WhatsApp for help.";
 
 const STEPS = [
   { title: "About you", icon: UserRound },
@@ -38,7 +46,17 @@ const STEPS = [
 
 const AMOUNTS = [10000, 25000, 50000, 100000];
 
-type Files = { identity: File | null; identity_back: File | null; address: File | null; student: File | null; proof: File | null };
+type Files = {
+  identity: File | null;
+  identity_back: File | null;
+  driving_licence: File | null;
+  aadhaar: File | null;
+  aadhaar_back: File | null;
+  pan: File | null;
+  address: File | null;
+  student: File | null;
+  proof: File | null;
+};
 
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "application/pdf": "pdf" };
 
@@ -56,7 +74,6 @@ export function ApplicationWizard({
   demo?: boolean;
 }) {
   const { site, payment, qrUrl } = useSettings();
-  const accountPhone = typeof user?.user_metadata?.phone === "string" ? user.user_metadata.phone : "";
   const guest = !user && !demo;
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -68,11 +85,202 @@ export function ApplicationWizard({
   const [serverError, setServerError] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [copied, setCopied] = useState(false);
+  const [referralCode, setReferralCode] = useState<string>("");
+  const [refStatus, setRefStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [checkingDup, setCheckingDup] = useState(false);
+
+  // Referral code from the shared link (?ref=CODE); remembered for this browser tab so a reload keeps it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let ref = normalizeReferralCode(new URLSearchParams(window.location.search).get("ref"));
+    try {
+      if (ref) sessionStorage.setItem(REF_KEY, ref);
+      else ref = normalizeReferralCode(sessionStorage.getItem(REF_KEY));
+    } catch {}
+    if (ref) setReferralCode(ref);
+  }, []);
+
+  // Check the code exists (debounced while typing).
+  useEffect(() => {
+    if (!referralCode || referralCode.length < 4) {
+      setRefStatus("idle");
+      return;
+    }
+    if (demo) {
+      setRefStatus("valid");
+      return;
+    }
+    setRefStatus("checking");
+    let alive = true;
+    const t = setTimeout(() => {
+      void checkReferralCode(referralCode).then((ok) => {
+        if (alive) setRefStatus(ok === false ? "invalid" : ok ? "valid" : "idle");
+      });
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [referralCode, demo]);
+  const [payMethod, setPayMethod] = useState<"razorpay" | "qr">("razorpay");
+  const [razorpayLoading, setRazorpayLoading] = useState(false);
+  const [razorpayError, setRazorpayError] = useState("");
+  const [razorpayPaymentId, setRazorpayPaymentId] = useState<string | null>(null);
+
+  const loadRazorpayScript = () => {
+    return new Promise<boolean>((resolve) => {
+      if (typeof window !== "undefined" && (window as any).Razorpay) return resolve(true);
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleRazorpayPayment = async () => {
+    setRazorpayLoading(true);
+    setRazorpayError("");
+    try {
+      const loaded = await loadRazorpayScript();
+      if (!loaded) {
+        setRazorpayError("Could not connect to payment gateway. Please scan the QR code instead.");
+        setRazorpayLoading(false);
+        return;
+      }
+
+      const res = await fetch("/api/razorpay/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicant_name: v.full_name,
+          phone: v.phone,
+        }),
+      });
+
+      const orderData = await res.json();
+      if (!res.ok || !orderData.orderId) {
+        setRazorpayError(orderData.error || "Failed to initialize Razorpay payment. Please use QR code.");
+        setRazorpayLoading(false);
+        return;
+      }
+
+      const options = {
+        key: orderData.keyId,
+        amount: orderData.amount,
+        currency: orderData.currency || "INR",
+        name: "MoneyPayee",
+        description: "Application Verification Fee",
+        image: "/logo-icon.png",
+        order_id: orderData.orderId,
+        prefill: {
+          name: v.full_name,
+          contact: v.phone,
+          email: contactEmail || undefined,
+        },
+        theme: {
+          color: "#16a34a",
+        },
+        handler: async function (response: any) {
+          // Confirm the payment on the server (signature + status + amount) before accepting it.
+          setRazorpayLoading(true);
+          let verify: { verified?: boolean; error?: string } = {};
+          try {
+            const vr = await fetch("/api/razorpay/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                order_id: response.razorpay_order_id,
+                payment_id: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            verify = await vr.json().catch(() => ({}));
+          } catch {
+            verify = { error: "Could not confirm your payment. Please check your connection and try again." };
+          }
+          setRazorpayLoading(false);
+          if (!verify.verified) {
+            setRazorpayError(
+              `${verify.error || "Payment could not be verified."} Payment ID: ${response.razorpay_payment_id || "—"}`
+            );
+            return;
+          }
+
+          const payId = response.razorpay_payment_id;
+          setRazorpayPaymentId(payId);
+          set("transaction_id", payId);
+
+          // Generate digital verified receipt screenshot
+          const canvas = document.createElement("canvas");
+          canvas.width = 600;
+          canvas.height = 360;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "#050f08";
+            ctx.fillRect(0, 0, 600, 360);
+            ctx.fillStyle = "#16a34a";
+            ctx.fillRect(0, 0, 600, 8);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 22px sans-serif";
+            ctx.fillText("MoneyPayee Payment Receipt", 40, 50);
+            ctx.font = "14px sans-serif";
+            ctx.fillStyle = "#a1a1aa";
+            ctx.fillText("Razorpay Verified Online Payment", 40, 75);
+            ctx.fillStyle = "#22c55e";
+            ctx.font = "bold 38px sans-serif";
+            ctx.fillText(`₹${Math.round(Number(orderData.amount) / 100) || FEE}`, 40, 135);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "15px sans-serif";
+            ctx.fillText(`Payment ID: ${payId}`, 40, 185);
+            ctx.fillText(`Applicant: ${v.full_name}`, 40, 215);
+            ctx.fillText(`Order ID: ${orderData.orderId}`, 40, 245);
+            ctx.fillText(`Date: ${new Date().toLocaleString("en-IN")}`, 40, 275);
+            ctx.fillStyle = "#16a34a";
+            ctx.font = "bold 15px sans-serif";
+            ctx.fillText("STATUS: VERIFIED / SUCCESS", 40, 315);
+          }
+          canvas.toBlob((blob) => {
+            const file = new File([blob || new Blob()], `razorpay-${payId}.png`, { type: "image/png" });
+            setFile("proof", file, "proof");
+          }, "image/png");
+        },
+        modal: {
+          ondismiss: function () {
+            setRazorpayLoading(false);
+          },
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on("payment.failed", function (response: any) {
+        setRazorpayError(response.error.description || "Payment failed. Please try again or scan QR.");
+        setRazorpayLoading(false);
+      });
+      rzp.open();
+    } catch (err: any) {
+      setRazorpayError(err?.message || "Payment service temporarily unavailable. Please scan the QR code.");
+    } finally {
+      setRazorpayLoading(false);
+    }
+  };
   const [tenure, setTenure] = useState(12); // only for the EMI estimate; the lender sets the real tenure
-  const [files, setFiles] = useState<Files>({ identity: null, identity_back: null, address: null, student: null, proof: null });
+  const [files, setFiles] = useState<Files>({
+    identity: null,
+    identity_back: null,
+    driving_licence: null,
+    aadhaar: null,
+    aadhaar_back: null,
+    pan: null,
+    address: null,
+    student: null,
+    proof: null,
+  });
   const [v, setV] = useState({
     full_name: "",
-    phone: accountPhone,
+    phone: "",
+    alt_phone: "",
+    email: "",
     dob: "",
     category: "Employed",
     requested_amount: "25000",
@@ -93,7 +301,17 @@ export function ApplicationWizard({
     () => ({
       ...v,
       identity_type: v.category === "Driver" ? "Driving licence" : v.identity_type,
-      files: { identity: !!files.identity, address: !!files.address, student: !!files.student, proof: !!files.proof },
+      files: {
+        identity: !!files.identity,
+        identity_back: !!files.identity_back,
+        driving_licence: !!files.driving_licence,
+        aadhaar: !!files.aadhaar || !!files.address,
+        aadhaar_back: !!files.aadhaar_back,
+        pan: !!files.pan,
+        address: !!files.aadhaar || !!files.address,
+        student: !!files.student,
+        proof: !!files.proof,
+      },
     }),
     [v, files],
   );
@@ -112,8 +330,16 @@ export function ApplicationWizard({
     return Object.fromEntries(Object.entries(all).filter(([k]) => STEP_FIELDS[i].includes(k)));
   }
 
-  function next() {
+  async function next() {
     const e = stepErrors(step);
+    // Stop a repeat applicant on the first step, before they pay the fee.
+    if (step === 0 && !demo && !Object.keys(e).length) {
+      setCheckingDup(true);
+      const dup = await checkApplicantExists(v.phone.trim(), v.email.trim());
+      setCheckingDup(false);
+      if (dup === "phone") e.phone = DUP_PHONE;
+      else if (dup === "email") e.email = DUP_EMAIL;
+    }
     setErrors(e);
     if (Object.keys(e).length) return focusFirst(e);
     setStep((s) => Math.min(s + 1, 3));
@@ -140,38 +366,29 @@ export function ApplicationWizard({
     }
     if (demo) return setServerError("Demo mode: everything checks out, but submitting needs Supabase. Add your keys to .env.local to go live.");
     if (!supabase || !payment?.qr_path) return setServerError("Payments are not configured yet. Please try again later.");
-    if (guest) {
-      const e: Errors = {};
-      if (pw.length < 8) e.password = "Use at least 8 characters.";
-      else if (pw !== pw2) e.password2 = "The passwords don't match.";
-      if (contactEmail.trim() && !EMAIL_RE.test(contactEmail.trim())) e.contact_email = "Enter a valid email, or leave it empty.";
-      if (Object.keys(e).length) {
-        setErrors(e);
-        return focusFirst(e);
-      }
-    }
     setBusy(true);
     try {
-      // Not signed in yet: create the account (or sign in, if this number already has one with this password)
-      let uid = user?.id;
-      if (!uid) {
-        setProgress("Creating your account…");
+      // Every application gets its OWN hidden account (there is no user-facing login).
+      // Never reuse a session left in this browser by an earlier applicant: that would file this
+      // person under the earlier applicant's account and their referral would count as a self-referral.
+      let uid: string | undefined;
+      {
+        setProgress("Preparing your submission…");
         onAccountCreating?.();
-        const authEmail = phoneToAuthEmail(v.phone);
+        if (user) await supabase.auth.signOut({ scope: "local" });
+        const internalEmail = `${normalizePhone(v.phone)}-${crypto.randomUUID().slice(0, 8)}@internal.moneypay.local`;
+        const internalPw = `${crypto.randomUUID()}Aa1!`;
+        const contactEmailFinal = v.email.trim() || null;
         const su = await supabase.auth.signUp({
-          email: authEmail,
-          password: pw,
-          options: { data: { phone: normalizePhone(v.phone), contact_email: contactEmail.trim() || null } },
+          email: internalEmail,
+          password: internalPw,
+          options: { data: { phone: normalizePhone(v.phone), full_name: v.full_name.trim(), alt_phone: v.alt_phone.trim() || null, contact_email: contactEmailFinal } },
         });
-        if (su.error) {
-          if (!/already registered|already exists/i.test(su.error.message)) throw su.error;
-          const si = await supabase.auth.signInWithPassword({ email: authEmail, password: pw });
-          if (si.error || !si.data.user)
-            throw new Error("This mobile number already has an account. Enter that account's password above, or log in first to apply from it.");
-          uid = si.data.user.id;
-        } else if (!su.data.session || !su.data.user) {
-          throw new Error("Your account was created but sign-in is waiting for email confirmation. Ask the site owner to turn off “Confirm email” in Supabase.");
-        } else uid = su.data.user.id;
+        if (su.error) throw su.error;
+        if (!su.data.session || !su.data.user) {
+          throw new Error("Submission is waiting for email confirmation in Supabase. Ask the site owner to turn off “Confirm email” in Supabase.");
+        }
+        uid = su.data.user.id;
       }
       const upload = async (bucket: string, f: File | null) => {
         if (!f) return null;
@@ -181,12 +398,22 @@ export function ApplicationWizard({
         return path;
       };
       setProgress("Uploading documents…");
-      const [identity_path, identity_back_path, address_path, student_path] = await Promise.all([
+      const [identity_path, identity_back_path, driving_path, aadhaar_path, aadhaar_back_path, pan_path, student_path] = await Promise.all([
         upload("kyc-documents", files.identity),
         upload("kyc-documents", files.identity_back),
-        upload("kyc-documents", files.address),
+        upload("kyc-documents", files.driving_licence),
+        upload("kyc-documents", files.aadhaar || files.address),
+        upload("kyc-documents", files.aadhaar_back),
+        upload("kyc-documents", files.pan),
         upload("kyc-documents", v.category === "Student" ? files.student : null),
       ]);
+      // Drivers: the database requires the driving licence as their identity document.
+      const isDriver = v.category === "Driver";
+      const resolvedIdentityPath = isDriver ? driving_path : identity_path || driving_path || aadhaar_path;
+      // Back side belongs to the ID card; every file is also saved under its own name below.
+      const resolvedIdentityBackPath = !isDriver && identity_path ? identity_back_path : null;
+      const resolvedIdentityType = isDriver || (!identity_path && driving_path) ? "Driving licence" : "Voter ID";
+      const resolvedLast4 = /^[A-Za-z0-9]{4}$/.test(v.identity_last4.trim()) ? v.identity_last4.trim().toUpperCase() : "0000";
       setProgress("Uploading payment screenshot…");
       const proof_path = await upload("payment-proofs", files.proof);
       setProgress("Submitting application…");
@@ -195,7 +422,7 @@ export function ApplicationWizard({
         p_phone: v.phone.trim(),
         p_category: v.category,
         p_requested_amount: Number(v.requested_amount),
-        p_transaction_id: v.transaction_id.trim(),
+        p_transaction_id: v.transaction_id.trim().replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
         p_proof_path: proof_path,
         p_expected_qr: payment.qr_path,
         p_refund_upi_id: v.refund_upi_id.trim(),
@@ -205,15 +432,24 @@ export function ApplicationWizard({
           city: v.city.trim(),
           state: v.state.trim(),
           pincode: v.pincode.trim(),
-          identity_type: input.identity_type,
-          identity_last4: v.identity_last4.trim(),
+          identity_type: resolvedIdentityType,
+          identity_last4: resolvedLast4,
           institution: v.institution.trim(),
-          identity_path,
-          identity_back_path,
-          address_path,
+          identity_path: resolvedIdentityPath,
+          identity_back_path: resolvedIdentityBackPath,
+          address_path: aadhaar_path,
+          aadhaar_path,
+          aadhaar_back_path,
+          pan_path,
+          driving_path,
+          id_card_path: identity_path,
+          id_card_back_path: identity_back_path,
+          alt_phone: v.alt_phone.trim(),
+          email: v.email.trim(),
           student_path,
           consent: true,
         },
+        p_referral_code: referralCode && refStatus !== "invalid" ? referralCode : null,
       });
       if (error) throw error;
       onSubmitted((data as { ref_code: string }).ref_code);
@@ -227,7 +463,6 @@ export function ApplicationWizard({
 
   const estimate = validAmount(Number(v.requested_amount)) ? emi(Number(v.requested_amount), LOAN_ESTIMATE.annual_rate, tenure) : 0;
   const f = (k: string) => ({ id: k, "aria-invalid": Boolean(errors[k]), "aria-describedby": errors[k] ? k + "-error" : undefined });
-  const days = site?.refund_days ?? 7;
 
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[1fr_340px]">
@@ -264,12 +499,49 @@ export function ApplicationWizard({
         <div className="p-5 sm:p-7">
           {step === 0 && (
             <section className="space-y-5 animate-fade">
-              <Header title="Tell us about yourself" sub="Enter details exactly as they appear on your ID." />
+              <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <Header title="Tell us about yourself" sub="Enter details exactly as they appear on your ID." />
+                <div className="w-full shrink-0 rounded-xl border border-gold/30 bg-gold/[0.06] p-3 sm:w-56">
+                  <label htmlFor="referral_code" className="flex items-center gap-1.5 text-xs font-semibold text-muted">
+                    <Gift size={13} className="text-gold" /> Referral code <span className="font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="referral_code"
+                    value={referralCode}
+                    onChange={(e) => {
+                      const code = normalizeReferralCode(e.target.value);
+                      setReferralCode(code);
+                      try {
+                        if (code) sessionStorage.setItem(REF_KEY, code);
+                        else sessionStorage.removeItem(REF_KEY);
+                      } catch {}
+                    }}
+                    maxLength={20}
+                    placeholder="e.g. MP7K2Q9X"
+                    autoComplete="off"
+                    className="mt-1.5 !h-9 font-mono text-sm uppercase tracking-wider"
+                  />
+                  <p
+                    className={`mt-1 min-h-4 text-[0.7rem] ${
+                      refStatus === "valid" ? "text-ok" : refStatus === "invalid" ? "text-bad" : "text-muted"
+                    }`}
+                    aria-live="polite"
+                  >
+                    {refStatus === "valid"
+                      ? "✓ Referral code applied"
+                      : refStatus === "invalid"
+                        ? "Code not found — check it or leave blank"
+                        : refStatus === "checking"
+                          ? "Checking…"
+                          : ""}
+                  </p>
+                </div>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Full name" k="full_name" err={errors.full_name}>
                   <input {...f("full_name")} autoComplete="name" maxLength={100} value={v.full_name} onChange={(e) => set("full_name", e.target.value)} placeholder="As on your ID" />
                 </Field>
-                <Field label="Mobile number" k="phone" err={errors.phone} hint={accountPhone ? "Your account’s mobile number." : undefined}>
+                <Field label="Mobile number" k="phone" err={errors.phone}>
                   <div className="relative">
                     <span className="pointer-events-none absolute inset-y-0 left-0 grid w-12 place-items-center text-sm font-semibold text-muted">+91</span>
                     <input
@@ -278,13 +550,41 @@ export function ApplicationWizard({
                       inputMode="numeric"
                       autoComplete="tel-national"
                       maxLength={10}
-                      readOnly={Boolean(accountPhone)}
                       value={v.phone}
                       onChange={(e) => set("phone", e.target.value.replace(/\D/g, ""))}
                       placeholder="98765 43210"
                     />
                   </div>
                 </Field>
+
+                <Field label="Alternative phone number" k="alt_phone" err={errors.alt_phone} hint="Alternative or family mobile number (optional).">
+                  <div className="relative">
+                    <span className="pointer-events-none absolute inset-y-0 left-0 grid w-12 place-items-center text-sm font-semibold text-muted">+91</span>
+                    <input
+                      {...f("alt_phone")}
+                      className="!pl-12"
+                      inputMode="numeric"
+                      autoComplete="tel"
+                      maxLength={10}
+                      value={v.alt_phone}
+                      onChange={(e) => set("alt_phone", e.target.value.replace(/\D/g, ""))}
+                      placeholder="98765 43211"
+                    />
+                  </div>
+                </Field>
+
+                <Field label="Email ID" k="email" err={errors.email} hint="For application status and loan updates.">
+                  <input
+                    {...f("email")}
+                    type="email"
+                    autoComplete="email"
+                    maxLength={100}
+                    value={v.email}
+                    onChange={(e) => set("email", e.target.value)}
+                    placeholder="name@example.com"
+                  />
+                </Field>
+
                 <Field label="Date of birth" k="dob" err={errors.dob}>
                   <input {...f("dob")} type="date" value={v.dob} onChange={(e) => set("dob", e.target.value)} max={new Date().toISOString().slice(0, 10)} />
                 </Field>
@@ -295,6 +595,7 @@ export function ApplicationWizard({
                     onChange={(e) => {
                       set("category", e.target.value);
                       if (e.target.value === "Driver") set("identity_type", "Driving licence");
+                      else if (v.identity_type === "Driving licence") set("identity_type", "Voter ID");
                     }}
                   >
                     {CATEGORIES.map((c) => (
@@ -359,73 +660,127 @@ export function ApplicationWizard({
           )}
 
           {step === 1 && (
-            <section className="space-y-5 animate-fade">
+            <section className="space-y-6 animate-fade">
               <Header
                 title="Upload your documents"
-                sub={
-                  v.category === "Student"
-                    ? "Students: ID, address proof and your student ID card."
-                    : v.category === "Driver"
-                      ? "Drivers: your driving licence is your ID document."
-                      : "A government ID and a proof of your current address."
-                }
+                sub="Upload your two mandatory verification documents (Aadhaar Card and PAN Card). Additional ID cards below are optional."
               />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="ID document" k="identity_type" err={errors.identity_type}>
-                  <select {...f("identity_type")} value={input.identity_type} disabled={v.category === "Driver"} onChange={(e) => set("identity_type", e.target.value)}>
-                    {IDENTITY_TYPES.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Last 4 characters of ID number" k="identity_last4" err={errors.identity_last4} hint="Never type your full ID number.">
-                  <input
-                    {...f("identity_last4")}
-                    maxLength={4}
-                    className="font-mono tracking-[0.3em] uppercase"
-                    value={v.identity_last4}
-                    onChange={(e) => set("identity_last4", e.target.value.replace(/[^A-Za-z0-9]/g, ""))}
-                    placeholder="XXXX"
-                  />
-                </Field>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FileDrop
-                  id="identity_file"
-                  label={`${input.identity_type} — front`}
-                  hint="Photo page or front side · up to 5 MB"
-                  required
-                  file={files.identity}
-                  onChange={(x) => setFile("identity", x, "identity_file")}
-                  error={errors.identity_file}
-                />
-                <FileDrop id="identity_back" label={`${input.identity_type} — back`} hint="Only if it has details on the back" file={files.identity_back} onChange={(x) => setFile("identity_back", x, "identity_back")} />
-                <FileDrop
-                  id="address_file"
-                  label="Address proof"
-                  hint="Utility bill, bank statement or rent agreement"
-                  required
-                  file={files.address}
-                  onChange={(x) => setFile("address", x, "address_file")}
-                  error={errors.address_file}
-                />
-                {v.category === "Student" && (
+
+              {/* 1. Optional ID Cards (Voter ID / ID Card / Driving Licence) */}
+              <div className="rounded-2xl border hairline bg-white/[0.02] p-4 sm:p-5 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-6 place-items-center rounded-md bg-gold/15 text-gold text-xs font-bold">1</span>
+                    <p className="font-semibold text-sm">ID Card / Voter ID / Driving Licence <span className="text-xs font-normal text-muted">(Optional)</span></p>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <FileDrop
-                    id="student_file"
-                    label="Student ID card"
-                    hint="Valid for the current academic year"
-                    required
-                    file={files.student}
-                    onChange={(x) => setFile("student", x, "student_file")}
-                    error={errors.student_file}
+                    id="identity_file"
+                    label="ID Card / Voter ID (Optional)"
+                    hint="Front side · up to 5 MB"
+                    file={files.identity}
+                    onChange={(x) => setFile("identity", x, "identity_file")}
+                    error={errors.identity_file}
                   />
-                )}
+                  <FileDrop
+                    id="driving_licence"
+                    label={v.category === "Driver" ? "Driving Licence (Required for drivers)" : "Driving Licence (Optional)"}
+                    hint="Front side · up to 5 MB"
+                    file={files.driving_licence}
+                    onChange={(x) => setFile("driving_licence", x, "driving_licence")}
+                    error={errors.driving_licence}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FileDrop
+                    id="identity_back"
+                    label="ID Card — back (Optional)"
+                    hint="Back side (optional)"
+                    file={files.identity_back}
+                    onChange={(x) => setFile("identity_back", x, "identity_back")}
+                  />
+                  <Field label="Last 4 characters of ID number (Optional)" k="identity_last4" err={errors.identity_last4} hint="Optional — never type your full ID number.">
+                    <input
+                      {...f("identity_last4")}
+                      maxLength={4}
+                      className="font-mono tracking-[0.3em] uppercase"
+                      value={v.identity_last4}
+                      onChange={(e) => set("identity_last4", e.target.value.replace(/[^A-Za-z0-9]/g, ""))}
+                      placeholder="XXXX"
+                    />
+                  </Field>
+                </div>
               </div>
+
+              {/* 2. Two Mandatory Verification Documents (Aadhaar & PAN) */}
+              <div className="rounded-2xl border hairline bg-white/[0.02] p-4 sm:p-5 space-y-5">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-6 place-items-center rounded-md bg-gold/15 text-gold text-xs font-bold">2</span>
+                  <div>
+                    <p className="font-semibold text-sm">Two Verification Documents (Aadhaar &amp; PAN Card)</p>
+                    <p className="text-xs text-muted">Required for instant KYC identity and address verification.</p>
+                  </div>
+                </div>
+
+                {/* Document 1: Aadhaar Card */}
+                <div className="space-y-3 pt-3 border-t hairline">
+                  <p className="text-xs font-bold uppercase tracking-wider text-champagne">Document 1: Aadhaar Card</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FileDrop
+                      id="aadhaar_file"
+                      label="Aadhaar Card — front"
+                      hint="Front photo side · up to 5 MB"
+                      required
+                      file={files.aadhaar}
+                      onChange={(x) => setFile("aadhaar", x, "aadhaar_file")}
+                      error={errors.aadhaar_file}
+                    />
+                    <FileDrop
+                      id="aadhaar_back_file"
+                      label="Aadhaar Card — back"
+                      hint="Back side showing address · up to 5 MB"
+                      file={files.aadhaar_back}
+                      onChange={(x) => setFile("aadhaar_back", x, "aadhaar_back_file")}
+                    />
+                  </div>
+                </div>
+
+                {/* Document 2: PAN Card */}
+                <div className="space-y-3 pt-3 border-t hairline">
+                  <p className="text-xs font-bold uppercase tracking-wider text-champagne">Document 2: PAN Card</p>
+                  <FileDrop
+                    id="pan_file"
+                    label="PAN Card — front"
+                    hint="Permanent Account Number card · up to 5 MB"
+                    required
+                    file={files.pan}
+                    onChange={(x) => setFile("pan", x, "pan_file")}
+                    error={errors.pan_file}
+                  />
+                </div>
+              </div>
+
               {v.category === "Student" && (
-                <Field label="School / college / university" k="institution" err={errors.institution}>
-                  <input {...f("institution")} maxLength={150} value={v.institution} onChange={(e) => set("institution", e.target.value)} placeholder="e.g. St. Xavier's College, Mumbai" />
-                </Field>
+                <div className="rounded-2xl border hairline bg-white/[0.02] p-4 sm:p-5 space-y-4">
+                  <p className="font-semibold text-sm">Student Verification</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FileDrop
+                      id="student_file"
+                      label="Student ID card"
+                      hint="Valid for the current academic year · up to 5 MB"
+                      required
+                      file={files.student}
+                      onChange={(x) => setFile("student", x, "student_file")}
+                      error={errors.student_file}
+                    />
+                    <Field label="School / college / university" k="institution" err={errors.institution}>
+                      <input {...f("institution")} maxLength={150} value={v.institution} onChange={(e) => set("institution", e.target.value)} placeholder="e.g. St. Xavier's College, Mumbai" />
+                    </Field>
+                  </div>
+                </div>
               )}
+
               <Check2 id="kyc_consent" checked={v.kyc_consent} onChange={(c) => set("kyc_consent", c)} error={errors.kyc_consent}>
                 These documents are mine and the details are accurate. I consent to them being reviewed for this application and shared with the lender.
               </Check2>
@@ -434,64 +789,165 @@ export function ApplicationWizard({
 
           {step === 2 && (
             <section className="space-y-5 animate-fade">
-              <Header title={`Pay the ₹${FEE} application fee`} sub="Use any UPI app. Check that the payee name matches before you pay." />
-              <div className="card-glow grid gap-6 rounded-2xl border hairline bg-gradient-to-br from-white/[0.05] to-transparent p-5 sm:grid-cols-[180px_1fr] sm:p-6">
-                <div className="mx-auto w-full max-w-[180px] rounded-2xl bg-white p-3 shadow-[0_20px_40px_-15px_rgb(0_0_0/0.8)]">
-                  {qrUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={qrUrl} alt={`UPI QR code for ${payment?.payee_name}`} className="aspect-square w-full rounded-lg object-contain" />
-                  ) : (
-                    <div className="grid aspect-square place-items-center text-center text-xs text-muted">QR not published yet</div>
-                  )}
-                </div>
-                <div className="flex flex-col justify-center">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Pay to</p>
-                  <p className="mt-1 text-lg font-bold">{payment?.payee_name || "—"}</p>
-                  {payment?.upi_id && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(payment.upi_id);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 1800);
-                      }}
-                      className="mt-2 inline-flex w-fit items-center gap-2 rounded-lg border hairline bg-white/[0.04] px-3 py-1.5 font-mono text-sm"
-                    >
-                      {payment.upi_id} {copied ? <Check size={14} className="text-ok" /> : <Copy size={14} className="text-muted" />}
-                    </button>
-                  )}
-                  <p className="display mt-4 text-4xl text-champagne">₹{FEE}</p>
-                  <p className="text-xs text-muted">Pay this exact amount once.</p>
-                </div>
+              <Header title={`Pay the ₹${FEE} application fee`} sub="Choose your preferred payment method below." />
+
+              {/* Payment Method Switcher */}
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPayMethod("razorpay")}
+                  className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs sm:text-sm font-bold transition ${
+                    payMethod === "razorpay"
+                      ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 shadow-sm"
+                      : "text-muted hover:text-ink hover:bg-white/[0.04]"
+                  }`}
+                >
+                  <CreditCard size={16} />
+                  <span>Pay with Razorpay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayMethod("qr")}
+                  className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs sm:text-sm font-bold transition ${
+                    payMethod === "qr"
+                      ? "border border-gold/40 bg-gold/20 text-gold-ink shadow-sm"
+                      : "text-muted hover:text-ink hover:bg-white/[0.04]"
+                  }`}
+                >
+                  <QrCode size={16} />
+                  <span>Scan UPI QR Code</span>
+                </button>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="UPI transaction ID (UTR)" k="transaction_id" err={errors.transaction_id} hint="12-digit number in your UPI app's payment details.">
-                  <input
-                    {...f("transaction_id")}
-                    className="font-mono"
-                    maxLength={40}
-                    value={v.transaction_id}
-                    onChange={(e) => set("transaction_id", e.target.value.replace(/[^A-Za-z0-9]/g, ""))}
-                    placeholder="e.g. 428192018291"
+              {payMethod === "razorpay" ? (
+                <div className="card-glow rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-[#0c2214] via-[#07150c] to-[#040c06] p-5 sm:p-6 space-y-4">
+                  {razorpayPaymentId ? (
+                    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/20 p-4 text-emerald-300 space-y-2">
+                      <div className="flex items-center gap-2 font-bold text-base text-ink">
+                        <CheckCircle2 size={20} className="text-emerald-400" />
+                        <span>Payment Verified via Razorpay!</span>
+                      </div>
+                      <p className="text-xs text-ink-2">
+                        Payment ID: <strong className="font-mono text-gold">{razorpayPaymentId}</strong>
+                      </p>
+                      <p className="text-xs text-muted">
+                        Amount Paid: ₹{FEE} · Receipt generated and attached automatically. You can proceed directly.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1">
+                        <span className="chip border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-semibold">
+                          Automated Online Verification
+                        </span>
+                        <h3 className="text-lg font-bold text-ink">Instant Checkout (UPI, Cards, Netbanking)</h3>
+                        <p className="text-xs text-muted leading-relaxed">
+                          Pay ₹{FEE} securely using Google Pay, PhonePe, Paytm, BHIM UPI, Netbanking, or Cards. Your payment will be verified instantly without needing manual screenshot upload.
+                        </p>
+                      </div>
+
+                      {razorpayError && (
+                        <p className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">
+                          {razorpayError}
+                        </p>
+                      )}
+
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleRazorpayPayment()}
+                          disabled={razorpayLoading}
+                          className="btn btn-primary btn-lg w-full justify-center font-bold text-sm shadow-lg shadow-emerald-950/50"
+                        >
+                          {razorpayLoading ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" /> Connecting to Razorpay…
+                            </>
+                          ) : (
+                            <>
+                              <CreditCard size={17} /> Pay ₹{FEE} with Razorpay
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="pt-2">
+                    <Field label="Your UPI ID" k="refund_upi_id" err={errors.refund_upi_id} hint="Your personal UPI ID (e.g. yourname@okaxis).">
+                      <input
+                        {...f("refund_upi_id")}
+                        autoCapitalize="none"
+                        maxLength={120}
+                        value={v.refund_upi_id}
+                        onChange={(e) => set("refund_upi_id", e.target.value.trim())}
+                        placeholder="yourname@okaxis"
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="card-glow grid gap-6 rounded-2xl border hairline bg-gradient-to-br from-white/[0.05] to-transparent p-5 sm:grid-cols-[180px_1fr] sm:p-6">
+                    <div className="mx-auto w-full max-w-[180px] rounded-2xl bg-white p-3 shadow-[0_20px_40px_-15px_rgb(0_0_0/0.8)]">
+                      {qrUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={qrUrl} alt={`UPI QR code for ${payment?.payee_name}`} className="aspect-square w-full rounded-lg object-contain" />
+                      ) : (
+                        <div className="grid aspect-square place-items-center text-center text-xs text-muted">QR not published yet</div>
+                      )}
+                    </div>
+                    <div className="flex flex-col justify-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Pay to</p>
+                      <p className="mt-1 text-lg font-bold">{payment?.payee_name || "—"}</p>
+                      {payment?.upi_id && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(payment.upi_id);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 1800);
+                          }}
+                          className="mt-2 inline-flex w-fit items-center gap-2 rounded-lg border hairline bg-white/[0.04] px-3 py-1.5 font-mono text-sm"
+                        >
+                          {payment.upi_id} {copied ? <Check size={14} className="text-ok" /> : <Copy size={14} className="text-muted" />}
+                        </button>
+                      )}
+                      <p className="display mt-4 text-4xl text-champagne">₹{FEE}</p>
+                      <p className="text-xs text-muted">Scan the QR with GPay, PhonePe, or Paytm.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="UPI transaction ID (UTR)" k="transaction_id" err={errors.transaction_id} hint="12-digit number in your UPI app's payment details.">
+                      <input
+                        {...f("transaction_id")}
+                        className="font-mono"
+                        maxLength={40}
+                        value={v.transaction_id}
+                        onChange={(e) => set("transaction_id", e.target.value.replace(/[^A-Za-z0-9_]/g, ""))}
+                        placeholder="e.g. 428192018291"
+                      />
+                    </Field>
+                    <Field label="Your UPI ID" k="refund_upi_id" err={errors.refund_upi_id} hint="Your personal UPI ID (e.g. yourname@okaxis).">
+                      <input {...f("refund_upi_id")} autoCapitalize="none" maxLength={120} value={v.refund_upi_id} onChange={(e) => set("refund_upi_id", e.target.value.trim())} placeholder="yourname@okaxis" />
+                    </Field>
+                  </div>
+                  <FileDrop
+                    id="proof"
+                    label="Payment screenshot"
+                    hint="The confirmation screen showing amount, payee and UTR · PNG/JPG/WebP"
+                    types={IMAGE_TYPES}
+                    required
+                    file={files.proof}
+                    onChange={(x) => setFile("proof", x, "proof")}
+                    error={errors.proof}
                   />
-                </Field>
-                <Field label="UPI ID for refunds" k="refund_upi_id" err={errors.refund_upi_id} hint={`Where we send ₹${FEE} back if you're not approved.`}>
-                  <input {...f("refund_upi_id")} autoCapitalize="none" maxLength={120} value={v.refund_upi_id} onChange={(e) => set("refund_upi_id", e.target.value.trim())} placeholder="yourname@okaxis" />
-                </Field>
-              </div>
-              <FileDrop
-                id="proof"
-                label="Payment screenshot"
-                hint="The confirmation screen showing amount, payee and UTR · PNG/JPG/WebP"
-                types={IMAGE_TYPES}
-                required
-                file={files.proof}
-                onChange={(x) => setFile("proof", x, "proof")}
-                error={errors.proof}
-              />
+                </>
+              )}
+
               <Check2 id="payment_consent" checked={v.payment_consent} onChange={(c) => set("payment_consent", c)} error={errors.payment_consent}>
-                I understand the ₹{FEE} fee covers verification of my application. If I&rsquo;m not approved it will be refunded in full to the UPI ID above within {days} days. Approval
+                I understand the ₹{FEE} application fee covers verification of my documents and payment and is non-refundable. Approval
                 sends my application to the lender, who decides the final loan terms.
               </Check2>
             </section>
@@ -503,67 +959,29 @@ export function ApplicationWizard({
               <dl className="divide-y divide-line overflow-hidden rounded-2xl border hairline text-sm">
                 <Summary k="Name" v={v.full_name} />
                 <Summary k="Mobile" v={`+91 ${v.phone}`} />
+                {v.alt_phone && <Summary k="Alternative mobile" v={`+91 ${v.alt_phone}`} />}
+                <Summary k="Email ID" v={v.email} />
                 <Summary k="Date of birth" v={v.dob} />
                 <Summary k="Category" v={v.category + (v.category === "Student" ? ` · ${v.institution}` : "")} />
                 <Summary k="Amount requested" v={rupees(Number(v.requested_amount) || 0)} strong />
                 <Summary k="Address" v={`${v.address}, ${v.city}, ${v.state} ${v.pincode}`} />
-                <Summary k="ID" v={`${input.identity_type} ···· ${v.identity_last4.toUpperCase()}`} />
+                <Summary k="Main ID" v={`${input.identity_type} ···· ${v.identity_last4.toUpperCase()}`} />
                 <Summary
                   k="Documents"
-                  v={[files.identity && "ID front", files.identity_back && "ID back", files.address && "Address proof", v.category === "Student" && files.student && "Student ID"]
+                  v={[
+                    files.identity && `${input.identity_type} (front)`,
+                    files.identity_back && `${input.identity_type} (back)`,
+                    (files.aadhaar || files.address) && "Aadhaar Card (front)",
+                    files.aadhaar_back && "Aadhaar Card (back)",
+                    files.pan && "PAN Card",
+                    v.category === "Student" && files.student && "Student ID",
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
                 />
                 <Summary k="UTR" v={v.transaction_id.toUpperCase()} mono />
-                <Summary k="Refund UPI" v={v.refund_upi_id} mono />
+                <Summary k="UPI ID" v={v.refund_upi_id} mono />
               </dl>
-              {guest && (
-                <div className="rounded-2xl border border-gold/25 bg-gold-soft/30 p-4 sm:p-5">
-                  <p className="flex items-center gap-2 font-semibold">
-                    <KeyRound size={16} className="text-gold" /> Set a password to track your application
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    You&rsquo;ll log in with <strong className="text-ink-2">+91 {v.phone}</strong> and this password to see your decision and any updates.
-                  </p>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <Field label="Password" k="password" err={errors.password} hint="At least 8 characters">
-                      <div className="relative">
-                        <input
-                          id="password"
-                          type={showPw ? "text" : "password"}
-                          autoComplete="new-password"
-                          className="!pr-11"
-                          value={pw}
-                          onChange={(e) => {
-                            setPw(e.target.value);
-                            setErrors(({ password: _a, ...rest }) => rest);
-                          }}
-                        />
-                        <button type="button" className="absolute inset-y-0 right-0 grid w-11 place-items-center text-muted" onClick={() => setShowPw((x) => !x)} aria-label={showPw ? "Hide password" : "Show password"}>
-                          {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </div>
-                    </Field>
-                    <Field label="Confirm password" k="password2" err={errors.password2}>
-                      <input
-                        id="password2"
-                        type={showPw ? "text" : "password"}
-                        autoComplete="new-password"
-                        value={pw2}
-                        onChange={(e) => {
-                          setPw2(e.target.value);
-                          setErrors(({ password2: _a, ...rest }) => rest);
-                        }}
-                      />
-                    </Field>
-                    <div className="sm:col-span-2">
-                      <Field label="Email (optional)" k="contact_email" err={errors.contact_email} hint="For updates about your application. We never share it.">
-                        <input id="contact_email" type="email" autoComplete="email" maxLength={254} value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="you@example.com" />
-                      </Field>
-                    </div>
-                  </div>
-                </div>
-              )}
               {serverError && <Notice tone="bad">{serverError}</Notice>}
             </section>
           )}
@@ -574,8 +992,8 @@ export function ApplicationWizard({
               <ArrowLeft size={16} /> Back
             </button>
             {step < 3 ? (
-              <button type="button" className="btn btn-dark btn-lg" onClick={next}>
-                Continue <ArrowRight size={16} />
+              <button type="button" className="btn btn-dark btn-lg" onClick={() => void next()} disabled={checkingDup}>
+                {checkingDup ? <Loader2 size={16} className="animate-spin" /> : null} Continue <ArrowRight size={16} />
               </button>
             ) : (
               <button type="button" className="btn btn-primary btn-lg" disabled={busy} onClick={() => void submit()}>
@@ -610,7 +1028,7 @@ export function ApplicationWizard({
             <li className="flex items-start gap-3">
               <BadgeIndianRupee size={17} className="mt-0.5 shrink-0 text-brand" />
               <span>
-                <strong>₹{FEE} fee</strong>, refunded within {days} days if you&rsquo;re not approved
+                <strong>₹{FEE} fee</strong>, one-time document verification fee
               </span>
             </li>
             <li className="flex items-start gap-3">
@@ -619,16 +1037,26 @@ export function ApplicationWizard({
             </li>
             <li className="flex items-start gap-3">
               <CircleCheckBig size={17} className="mt-0.5 shrink-0 text-brand" />
-              <span>Decision in 24–48 hours, visible on this page</span>
+              <span>Instant loan in 48 hours, status visible on this page</span>
             </li>
           </ul>
         </div>
-        {site?.lender_name && (
-          <div className="well p-5 text-xs leading-relaxed text-muted">
-            Lender: <strong className="text-ink-2">{site.lender_name}</strong> ({site.lender_type}, RBI Reg. No. <span className="font-mono">{site.lender_reg_no}</span>). Interest
-            rate and repayment terms are set by the lender and shared in a Key Fact Statement before you sign.
+
+        <div className="card p-5 border border-gold/30 bg-gradient-to-br from-[#0c2013] via-[#07150c] to-[#040c06] space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="grid size-7 place-items-center rounded-lg bg-gold/15 text-gold">
+              <Gift size={14} />
+            </span>
+            <p className="font-bold text-xs uppercase tracking-wider text-gold">Refer &amp; Earn 1,000 Coins</p>
           </div>
-        )}
+          <p className="text-xs text-muted leading-relaxed">
+            Invite your friends to apply. Get 1,000 coins per verified referral and convert directly into real cash to your UPI!
+          </p>
+        </div>
+
+        <div className="well p-5 text-xs leading-relaxed text-muted">
+          <strong className="text-ink-2">Broker platform:</strong> MoneyPayee verifies your application and forwards it to our banking &amp; lending partners. Interest rate and repayment terms are set by the lender and shared in a Key Fact Statement before you sign.
+        </div>
       </aside>
     </div>
   );

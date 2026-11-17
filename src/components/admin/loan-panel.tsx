@@ -1,16 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, Check, Copy, ExternalLink, FileText, KeyRound, Loader2, ReceiptText, RefreshCw, Save, Trash2, TriangleAlert, Undo2, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ExternalLink, FileText, Loader2, ReceiptText, Save, Trash2, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { dateOnly, dateTime, errorText, rupees } from "@/lib/format";
-import { formatPhone } from "@/lib/phone-auth";
-import { emi, schedule } from "@/lib/loan-math";
+import { dateOnly, errorText } from "@/lib/format";
 import {
   DOCUMENT_KINDS,
-  REPAYMENT_METHODS,
   type Application,
-  type BorrowerAccess,
   type Loan,
   type LoanDocument,
   type LoanDocumentKind,
@@ -18,6 +14,7 @@ import {
   type LoanStatus,
   type RepaymentMethod,
 } from "@/lib/types";
+import { emi } from "@/lib/loan-math";
 import { Notice } from "../ui";
 import type { AdminCtx } from "./admin-console";
 
@@ -113,24 +110,11 @@ function toLoan(id: string, f: Form): Loan {
   };
 }
 
-/** Strong, readable password for demo mode (live mode generates it in the database). */
-function demoPassword() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(12));
-  let out = "";
-  bytes.forEach((b, i) => {
-    out += alphabet[b % alphabet.length];
-    if (i === 3 || i === 7) out += "-";
-  });
-  return out;
-}
 
-type Tab = "loan" | "emis" | "docs" | "login";
+type Tab = "loan" | "docs";
 const TABS: { id: Tab; label: string; icon: typeof ReceiptText }[] = [
   { id: "loan", label: "Loan", icon: ReceiptText },
-  { id: "emis", label: "EMIs", icon: CalendarClock },
   { id: "docs", label: "Documents", icon: FileText },
-  { id: "login", label: "Login", icon: KeyRound },
 ];
 
 export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
@@ -147,7 +131,6 @@ export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
       .sort((a, b) => a.instalment_no - b.instalment_no),
   );
   const [docs, setDocs] = useState<LoanDocument[]>([]);
-  const [access, setAccess] = useState<BorrowerAccess | null>(() => ctx.access.find((a) => a.application_id === app.id) ?? null);
 
   // Demo mode: keep the console's Loans / Collections / Customers tabs in step with edits made here
   const { syncDemoLoan } = ctx;
@@ -164,17 +147,15 @@ export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
     let alive = true;
     Promise.all([
       supabase!.from("loans").select("*").eq("application_id", app.id).maybeSingle(),
-      supabase!.from("borrower_access").select("application_id,issued_at,last_login_at,locked_until").eq("application_id", app.id).maybeSingle(),
       supabase!.from("loan_payments").select("instalment_no,paid_on,amount,reference").eq("application_id", app.id).order("instalment_no"),
       supabase!.from("loan_documents").select("id,kind,title,uploaded_at,path").eq("application_id", app.id).order("uploaded_at", { ascending: false }),
-    ]).then(([l, b, p, d]) => {
+    ]).then(([l, p, d]) => {
       if (!alive) return;
       if (l.data) {
         const f = fromLoan(l.data as Loan);
         setForm(f);
         setSaved(f);
       }
-      setAccess((b.data as BorrowerAccess) ?? null);
       setPayments((p.data as LoanPayment[]) ?? []);
       setDocs((d.data as LoanDocument[]) ?? []);
       setLoading(false);
@@ -187,7 +168,7 @@ export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
   return (
     <section className="card overflow-hidden">
       <div className="px-5 pt-5">
-        <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Loan & borrower</h3>
+        <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Loan from partner bank</h3>
       </div>
       <div className="mt-3 flex gap-1 overflow-x-auto border-b hairline px-3 [scrollbar-width:none]" role="tablist">
         {TABS.map(({ id, label, icon: Icon }) => (
@@ -203,7 +184,6 @@ export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
             className={`relative flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-semibold transition ${tab === id ? "text-ink" : "text-muted hover:text-ink"}`}
           >
             <Icon size={15} className={tab === id ? "text-gold" : ""} /> {label}
-            {id === "emis" && payments.length > 0 && <span className="rounded-full bg-white/10 px-1.5 text-[0.65rem]">{payments.length}</span>}
             {id === "docs" && docs.length > 0 && <span className="rounded-full bg-white/10 px-1.5 text-[0.65rem]">{docs.length}</span>}
             {tab === id && <span className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-gold" />}
           </button>
@@ -224,12 +204,8 @@ export function LoanPanel({ app, ctx }: { app: Application; ctx: AdminCtx }) {
           </p>
         ) : tab === "loan" ? (
           <LoanTab app={app} ctx={ctx} live={live} form={form} setForm={setForm} onSaved={setSaved} setErr={setErr} />
-        ) : tab === "emis" ? (
-          <EmiTab app={app} ctx={ctx} live={live} saved={saved} payments={payments} setPayments={setPayments} setErr={setErr} goLoan={() => setTab("loan")} />
-        ) : tab === "docs" ? (
-          <DocsTab app={app} ctx={ctx} live={live} docs={docs} setDocs={setDocs} setErr={setErr} />
         ) : (
-          <LoginTab app={app} live={live} access={access} setAccess={setAccess} setErr={setErr} />
+          <DocsTab app={app} ctx={ctx} live={live} docs={docs} setDocs={setDocs} setErr={setErr} />
         )}
       </div>
     </section>
@@ -257,13 +233,11 @@ function LoanTab({
 }) {
   const [saving, setSaving] = useState(false);
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const preview = emi(Number(form.sanctioned_amount), Number(form.interest_rate), Number(form.tenure_months));
   const num = (v: string) => v.replace(/\D/g, "");
   const dec = (v: string) => v.replace(/[^\d.]/g, "");
 
   async function save() {
     setErr("");
-    if (form.repayment_link && !/^https:\/\//.test(form.repayment_link)) return setErr("The payment link must start with https://");
     if (!live) {
       onSaved(form);
       return ctx.toast("ok", "Demo: loan details saved for this session.");
@@ -273,20 +247,20 @@ function LoanTab({
     setSaving(false);
     if (error) return setErr(errorText(error));
     onSaved(form);
-    ctx.toast("ok", `Loan details saved for ${app.full_name}. They see them on their next login.`);
+    ctx.toast("ok", `Loan details saved for ${app.full_name}.`);
   }
 
   return (
     <div className="space-y-6">
       <Group title="Loan">
         <F label="Loan account no." id="ln-acc">
-          <input id="ln-acc" className="font-mono" maxLength={40} value={form.loan_account_no} onChange={(e) => set("loan_account_no", e.target.value)} placeholder="From the lender" />
+          <input id="ln-acc" className="font-mono" maxLength={40} value={form.loan_account_no} onChange={(e) => set("loan_account_no", e.target.value)} placeholder="From the bank" />
         </F>
         <F label="Status" id="ln-status">
           <select id="ln-status" value={form.status} onChange={(e) => set("status", e.target.value)}>
             <option value="sanctioned">Sanctioned</option>
             <option value="disbursed">Disbursed</option>
-            <option value="active">Active (repaying)</option>
+            <option value="active">Active</option>
             <option value="closed">Closed</option>
           </select>
         </F>
@@ -298,14 +272,6 @@ function LoanTab({
         </F>
         <F label="Tenure (months)" id="ln-ten">
           <input id="ln-ten" inputMode="numeric" value={form.tenure_months} onChange={(e) => set("tenure_months", num(e.target.value))} placeholder="e.g. 12" />
-        </F>
-        <F label="EMI (calculated)" id="ln-emi">
-          <div id="ln-emi" className="flex h-[46px] items-center rounded-[0.85rem] border border-white/10 bg-white/[0.02] px-4 font-semibold text-gold">
-            {preview ? rupees(preview) : "—"}
-          </div>
-        </F>
-        <F label="First EMI date" id="ln-first">
-          <input id="ln-first" type="date" value={form.first_emi_date} onChange={(e) => set("first_emi_date", e.target.value)} />
         </F>
       </Group>
 
@@ -342,179 +308,13 @@ function LoanTab({
         </div>
       </Group>
 
-      <Group title="How the borrower pays">
-        <F label="Method" id="ln-method">
-          <select id="ln-method" value={form.repayment_method} onChange={(e) => set("repayment_method", e.target.value)}>
-            <option value="">Not set yet</option>
-            {Object.entries(REPAYMENT_METHODS).map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </F>
-        <F label="Lender's payment link (optional)" id="ln-link">
-          <input id="ln-link" type="url" maxLength={300} value={form.repayment_link} onChange={(e) => set("repayment_link", e.target.value.trim())} placeholder="https://" />
-        </F>
-        <div className="sm:col-span-2">
-          <F label="Instructions for the borrower" id="ln-howto">
-            <textarea
-              id="ln-howto"
-              rows={2}
-              maxLength={1000}
-              value={form.repayment_details}
-              onChange={(e) => set("repayment_details", e.target.value)}
-              placeholder="e.g. EMIs are auto-debited from your registered account on the 5th."
-            />
-          </F>
-        </div>
-        <p className="text-xs text-warn sm:col-span-2">Only the lender&rsquo;s official account or link. Never a personal account or UPI ID.</p>
-      </Group>
-
-      <F label="Message to borrower (optional)" id="ln-note">
-        <textarea id="ln-note" rows={2} maxLength={1000} value={form.note} onChange={(e) => set("note", e.target.value)} placeholder="Shown on their Overview tab." />
+      <F label="Internal note (optional)" id="ln-note">
+        <textarea id="ln-note" rows={2} maxLength={1000} value={form.note} onChange={(e) => set("note", e.target.value)} placeholder="e.g. Sent to HDFC on 12 Nov, bank officer: Ravi" />
       </F>
 
       <button type="button" className="btn btn-dark" disabled={saving} onClick={() => void save()}>
         {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Save loan details
       </button>
-    </div>
-  );
-}
-
-/* ================================================================ EMIs */
-
-function EmiTab({
-  app,
-  ctx,
-  live,
-  saved,
-  payments,
-  setPayments,
-  setErr,
-  goLoan,
-}: {
-  app: Application;
-  ctx: AdminCtx;
-  live: boolean;
-  saved: Form | null;
-  payments: LoanPayment[];
-  setPayments: React.Dispatch<React.SetStateAction<LoanPayment[]>>;
-  setErr: (s: string) => void;
-  goLoan: () => void;
-}) {
-  const rows = useMemo(() => {
-    if (!saved?.sanctioned_amount || !saved.interest_rate || !saved.tenure_months || !saved.first_emi_date) return [];
-    return schedule(Number(saved.sanctioned_amount), Number(saved.interest_rate), Number(saved.tenure_months), saved.first_emi_date);
-  }, [saved]);
-  const [editing, setEditing] = useState<number | null>(null);
-  const [paidOn, setPaidOn] = useState(today());
-  const [amount, setAmount] = useState("");
-  const [ref, setRef] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  if (!rows.length)
-    return (
-      <div className="text-sm text-muted">
-        Save the sanctioned amount, interest rate, tenure and first EMI date in the{" "}
-        <button type="button" className="font-semibold text-gold hover:underline" onClick={goLoan}>
-          Loan tab
-        </button>{" "}
-        to see the EMI schedule.
-      </div>
-    );
-
-  const byNo = new Map(payments.map((p) => [p.instalment_no, p]));
-  const t = today();
-
-  function startMark(no: number, emiAmt: number) {
-    setEditing(no);
-    setPaidOn(t);
-    setAmount(String(emiAmt));
-    setRef("");
-  }
-
-  async function record(no: number) {
-    setErr("");
-    const amt = Number(amount);
-    if (!(amt > 0)) return setErr("Enter the amount paid.");
-    if (!paidOn || paidOn > t) return setErr("Enter the date it was paid (not in the future).");
-    const p: LoanPayment = { instalment_no: no, paid_on: paidOn, amount: amt, reference: ref.trim() };
-    if (live) {
-      setBusy(true);
-      const { error } = await supabase!.rpc("admin_record_payment", { p_id: app.id, p_instalment: no, p_paid_on: paidOn, p_amount: amt, p_reference: ref.trim() });
-      setBusy(false);
-      if (error) return setErr(errorText(error));
-    }
-    setPayments((list) => [...list.filter((x) => x.instalment_no !== no), p].sort((a, b) => a.instalment_no - b.instalment_no));
-    setEditing(null);
-    ctx.toast("ok", `EMI ${no} marked paid${live ? "" : " (demo, not saved)"}.`);
-  }
-
-  async function undo(no: number) {
-    setErr("");
-    if (live) {
-      const { error } = await supabase!.rpc("admin_remove_payment", { p_id: app.id, p_instalment: no });
-      if (error) return setErr(errorText(error));
-    }
-    setPayments((list) => list.filter((x) => x.instalment_no !== no));
-  }
-
-  return (
-    <div>
-      <p className="mb-3 text-xs text-muted">
-        {payments.length} of {rows.length} paid. Mark an EMI paid once the lender confirms it was received.
-      </p>
-      <ul className="divide-y divide-line overflow-hidden rounded-xl border hairline">
-        {rows.map((r) => {
-          const p = byNo.get(r.no);
-          const overdue = !p && r.date < t;
-          return (
-            <li key={r.no} className={`px-3.5 py-3 text-sm ${overdue ? "bg-bad-soft/40" : ""}`}>
-              <div className="flex items-center gap-3">
-                <span className="w-6 shrink-0 font-semibold text-muted">{r.no}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-ink">
-                    {rupees(r.emi)} <span className="font-normal text-muted">· due {dateOnly(r.date + "T00:00:00")}</span>
-                  </p>
-                  {p ? (
-                    <p className="text-xs text-ok">
-                      Paid {dateOnly(p.paid_on + "T00:00:00")} · {rupees(p.amount)}
-                      {p.reference ? ` · ${p.reference}` : ""}
-                    </p>
-                  ) : overdue ? (
-                    <p className="text-xs font-semibold text-bad">Overdue</p>
-                  ) : null}
-                </div>
-                {p ? (
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void undo(r.no)} title="Undo">
-                    <Undo2 size={14} /> Undo
-                  </button>
-                ) : editing !== r.no ? (
-                  <button type="button" className="btn btn-outline btn-sm" onClick={() => startMark(r.no, r.emi)}>
-                    <Check size={14} /> Mark paid
-                  </button>
-                ) : null}
-              </div>
-              {editing === r.no && (
-                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr_auto]">
-                  <input type="date" aria-label="Paid on" value={paidOn} max={t} onChange={(e) => setPaidOn(e.target.value)} />
-                  <input inputMode="numeric" aria-label="Amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="Amount" />
-                  <input aria-label="Reference" maxLength={60} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Reference (optional)" />
-                  <div className="flex gap-2">
-                    <button type="button" className="btn btn-ok btn-sm" disabled={busy} onClick={() => void record(r.no)}>
-                      {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
-                    </button>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
@@ -666,116 +466,6 @@ function DocsTab({
   );
 }
 
-/* ================================================================ Login */
-
-function LoginTab({
-  app,
-  live,
-  access,
-  setAccess,
-  setErr,
-}: {
-  app: Application;
-  live: boolean;
-  access: BorrowerAccess | null;
-  setAccess: React.Dispatch<React.SetStateAction<BorrowerAccess | null>>;
-  setErr: (s: string) => void;
-}) {
-  const [issuing, setIssuing] = useState(false);
-  const [password, setPassword] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const [confirmRegen, setConfirmRegen] = useState(false);
-  const loginId = formatPhone(app.phone);
-  const shareText = password
-    ? `Your Money Pay loan login\nMobile number: ${loginId}\nPassword: ${password}\nLog in at ${typeof window !== "undefined" ? window.location.origin : ""}/login (My loan)`
-    : "";
-
-  async function issue() {
-    setErr("");
-    setConfirmRegen(false);
-    setIssuing(true);
-    try {
-      if (!live) {
-        setPassword(demoPassword());
-      } else {
-        const { data, error } = await supabase!.rpc("admin_issue_borrower_password", { p_id: app.id });
-        if (error) throw error;
-        setPassword(data as string);
-      }
-      setAccess((a) => ({ application_id: app.id, issued_at: new Date().toISOString(), last_login_at: a?.last_login_at ?? null, locked_until: null }));
-    } catch (e) {
-      setErr(errorText(e));
-    } finally {
-      setIssuing(false);
-    }
-  }
-
-  function copy(text: string, key: string) {
-    void navigator.clipboard.writeText(text);
-    setCopied(key);
-    setTimeout(() => setCopied(null), 1500);
-  }
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-ink">Borrower login</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted">
-            Logs in with mobile <span className="font-mono text-ink-2">{loginId}</span>
-            {access ? (
-              <>
-                {" "}
-                · password issued {dateTime(access.issued_at)}
-                {access.last_login_at ? ` · last login ${dateTime(access.last_login_at)}` : " · not logged in yet"}
-              </>
-            ) : (
-              " · no password issued yet"
-            )}
-          </p>
-          <p className="mt-1 text-xs text-muted">One password per mobile number. It opens every loan on this number, so a repeat customer keeps the same login.</p>
-        </div>
-        {!access ? (
-          <button type="button" className="btn btn-gold btn-sm" disabled={issuing} onClick={() => void issue()}>
-            {issuing ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />} Generate password
-          </button>
-        ) : confirmRegen ? (
-          <div className="flex gap-2">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmRegen(false)}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-bad btn-sm" disabled={issuing} onClick={() => void issue()}>
-              {issuing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Yes, regenerate
-            </button>
-          </div>
-        ) : (
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => setConfirmRegen(true)}>
-            <RefreshCw size={14} /> Regenerate
-          </button>
-        )}
-      </div>
-      {confirmRegen && (
-        <p className="mt-3 flex items-start gap-2 text-xs text-warn">
-          <TriangleAlert size={14} className="mt-0.5 shrink-0" /> The old password stops working for every loan on this number, and the borrower is logged out everywhere.
-        </p>
-      )}
-      {password && (
-        <div className="mt-4 rounded-xl border border-gold/35 bg-gold-soft/60 p-4">
-          <p className="text-xs font-semibold text-gold-ink">Share these with {app.full_name}. The password is shown only once.</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <Cred label="Mobile number" value={loginId} copied={copied === "id"} onCopy={() => copy(app.phone, "id")} />
-            <Cred label="Password" value={password} copied={copied === "pw"} onCopy={() => copy(password, "pw")} />
-          </div>
-          <button type="button" className="btn btn-outline btn-sm mt-3" onClick={() => copy(shareText, "all")}>
-            {copied === "all" ? <Check size={14} className="text-ok" /> : <Copy size={14} />} Copy message for borrower
-          </button>
-        </div>
-      )}
-      <p className="mt-4 text-xs leading-relaxed text-muted">Borrowers can change this password themselves from their Account tab.</p>
-    </div>
-  );
-}
-
 /* ================================================================ Pieces */
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
@@ -795,17 +485,5 @@ function F({ label, id, children }: { label: string; id: string; children: React
       </label>
       {children}
     </div>
-  );
-}
-
-function Cred({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
-  return (
-    <button type="button" onClick={onCopy} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-paper/60 px-3 py-2.5 text-left">
-      <span className="min-w-0">
-        <span className="block text-[0.65rem] uppercase tracking-wide text-muted">{label}</span>
-        <span className="block truncate font-mono text-sm font-semibold text-ink">{value}</span>
-      </span>
-      {copied ? <Check size={15} className="shrink-0 text-ok" /> : <Copy size={15} className="shrink-0 text-faint" />}
-    </button>
   );
 }

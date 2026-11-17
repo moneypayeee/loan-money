@@ -345,7 +345,7 @@ function Review({ a, ctx, back, done }: { a: Application; ctx: AdminCtx; back: (
               {docs
                 .filter((d) => d.path || d.key !== "identity_back")
                 .map((d) => (
-                  <DocCard key={d.key} d={d} demo={ctx.demo} requested={a.kyc_status === "resubmit" && a.kyc_requested_docs.includes(d.key)} />
+                  <DocCard key={d.key} d={d} demo={ctx.demo} requested={a.kyc_status === "resubmit" && (a.kyc_requested_docs as string[]).includes(d.key)} />
                 ))}
             </div>
           </section>

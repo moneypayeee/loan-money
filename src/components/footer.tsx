@@ -2,33 +2,42 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, Mail, Phone, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, Mail, MessageCircle, Phone, ShieldCheck } from "lucide-react";
 import { Logo } from "./ui";
 import { useSettings } from "@/lib/settings-context";
 import { FEE } from "@/lib/types";
 
 export function Footer() {
   const pathname = usePathname();
-  const { site, disclosed } = useSettings();
+  const { site } = useSettings();
   if (pathname.startsWith("/admin")) return null;
-  const days = site?.refund_days ?? 7;
+  const waDigits = (site?.support_phone || "").replace(/\D/g, "");
+  const waTarget = waDigits.length >= 10 ? (waDigits.length === 10 ? `91${waDigits}` : waDigits) : "";
+  const waHref = waTarget
+    ? `https://wa.me/${waTarget}?text=${encodeURIComponent("Hi MoneyPayee team, I need help with my loan application.")}`
+    : `https://wa.me/?text=${encodeURIComponent("Hi MoneyPayee team, I need help with my loan application.")}`;
+
+  const hasEmail = Boolean(site?.support_email && !/example\.com/i.test(site.support_email));
+  const hasPhone = Boolean(site?.support_phone && !/90000\s*00000/.test(site.support_phone));
+  const hasGrievance = Boolean(site?.grievance_officer && !/sample/i.test(site.grievance_officer));
+  const hasAddress = Boolean(site?.company_address && !/sample/i.test(site.company_address));
 
   return (
-    <footer className="relative mt-16 overflow-hidden border-t border-white/[0.06] bg-navy">
-      <div className="aurora pointer-events-none absolute inset-x-0 bottom-0 h-[360px] opacity-50 [mask-image:linear-gradient(to_top,#000_40%,transparent)]" aria-hidden />
+    <footer className="relative mt-14 overflow-hidden border-t border-white/[0.06] bg-navy">
+      <div className="aurora pointer-events-none absolute inset-x-0 bottom-0 h-[320px] opacity-50 [mask-image:linear-gradient(to_top,#000_40%,transparent)]" aria-hidden />
       <div className="divider-glow absolute inset-x-0 top-0" aria-hidden />
 
-      <div className="shell relative grid grid-cols-2 gap-x-6 gap-y-10 pb-10 pt-12 md:grid-cols-[1.5fr_1fr_1fr_1.3fr]">
+      <div className="shell relative grid grid-cols-2 items-start gap-x-6 gap-y-8 pb-8 pt-10 md:grid-cols-[1.5fr_1fr_1fr_1.2fr] md:gap-x-8 md:pt-11">
         <div className="col-span-2 md:col-span-1">
           <Logo />
-          <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted">
-            Money Pay is a loan application platform. We verify your application;{" "}
-            {disclosed ? <span className="text-ink-2">{site?.lender_name}</span> : "our lending partner"} makes every credit decision and disburses every loan.
+          <p className="mt-3.5 max-w-xs text-sm leading-relaxed text-muted">
+            MoneyPayee is a loan application broker platform. We verify your application; our banking &amp; lending partners manage every loan and credit decision.
           </p>
-          <Link href="/apply" className="btn btn-gold btn-sm mt-5">
+          <Link href="/apply" className="btn btn-gold btn-sm mt-4">
             Start your application <ArrowUpRight size={14} />
           </Link>
         </div>
+
         <FooterCol
           title="Platform"
           links={[
@@ -37,66 +46,75 @@ export function Footer() {
             ["/questions", "FAQs"],
           ]}
         />
+
         <FooterCol
           title="Legal"
           links={[
-            ["/terms", "Fees & terms"],
+            ["/terms", "Terms & Conditions"],
             ["/privacy", "Privacy policy"],
             ["/terms#grievance", "Grievance redressal"],
           ]}
         />
+
         <div className="col-span-2 md:col-span-1">
-          <h3 className="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-faint">Contact</h3>
-          <ul className="mt-5 space-y-3 text-sm text-ink-2">
-            {site?.support_email && (
-              <li>
-                <a className="inline-flex items-center gap-2 hover:text-ink" href={`mailto:${site.support_email}`}>
-                  <Mail size={14} className="text-gold" /> {site.support_email}
+          <h3 className="text-[0.68rem] font-bold uppercase tracking-[0.2em] leading-none text-faint">Support</h3>
+          <div className="mt-4 space-y-2.5 text-sm text-ink-2">
+            <p className="text-xs leading-relaxed text-muted">Need help with your application, KYC, or fee verification?</p>
+            <div>
+              <a
+                href={waHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border border-[#25D366]/35 bg-[#25D366]/10 px-3.5 py-2 text-xs font-bold text-[#25D366] transition hover:bg-[#25D366]/20"
+              >
+                <MessageCircle size={14} /> Chat on WhatsApp
+              </a>
+            </div>
+            {hasEmail && (
+              <p>
+                <a className="inline-flex items-center gap-2 text-xs hover:text-ink" href={`mailto:${site!.support_email}`}>
+                  <Mail size={13} className="text-gold" /> {site!.support_email}
                 </a>
-              </li>
+              </p>
             )}
-            {site?.support_phone && (
-              <li className="inline-flex items-center gap-2">
-                <Phone size={14} className="text-gold" /> {site.support_phone}
-              </li>
+            {hasPhone && (
+              <p className="inline-flex items-center gap-2 text-xs">
+                <Phone size={13} className="text-gold" /> {site!.support_phone}
+              </p>
             )}
-            {site?.grievance_officer ? (
-              <li className="well p-3.5 text-xs leading-relaxed">
+            {hasGrievance && (
+              <div className="well p-3 text-xs leading-relaxed">
                 <span className="flex items-center gap-1.5 font-semibold text-ink">
                   <ShieldCheck size={13} className="text-gold" /> Grievance officer
                 </span>
-                <span className="mt-1 block">{site.grievance_officer}</span>
-                <a className="text-brand-ink hover:underline" href={`mailto:${site.grievance_email}`}>
-                  {site.grievance_email}
-                </a>
-              </li>
-            ) : (
-              <li className="text-muted">Contact details will appear here once published.</li>
+                <span className="mt-1 block">{site!.grievance_officer}</span>
+                {site!.grievance_email && !/example\.com/i.test(site!.grievance_email) && (
+                  <a className="text-brand-ink hover:underline" href={`mailto:${site!.grievance_email}`}>
+                    {site!.grievance_email}
+                  </a>
+                )}
+              </div>
             )}
-            {site?.company_address && <li className="text-xs text-faint">{site.company_address}</li>}
-          </ul>
+            {hasAddress && <p className="text-xs text-faint">{site!.company_address}</p>}
+          </div>
         </div>
       </div>
 
-      {/* Disclosures — above the divider line */}
-      <div className="shell relative space-y-2.5 pb-8 text-xs leading-relaxed text-faint">
+      {/* Disclosures */}
+      <div className="shell relative space-y-2 border-t border-white/[0.06] py-5 text-xs leading-relaxed text-faint">
         <p>
-          <span className="text-muted">Fee &amp; refund:</span> a one-time application fee of ₹{FEE} is charged for document and payment verification. If your application is not
-          approved, the full ₹{FEE} is refunded to your UPI ID within {days} days. The fee is not interest and is not deducted from any loan.
+          <span className="text-muted">Application fee:</span> a one-time non-refundable application fee of ₹{FEE} is charged for document and payment verification. The fee is not interest and is not deducted from any loan.
         </p>
-        {disclosed && site && (
-          <p>
-            <span className="text-muted">Lender:</span> {site.lender_name} ({site.lender_type}, RBI Reg. No. {site.lender_reg_no}). Loan amount, interest rate, tenure and all
-            other terms are set by the lender and shown in a Key Fact Statement before you sign any loan agreement.
-          </p>
-        )}
+        <p>
+          <span className="text-muted">Lending partners:</span> loans are issued and managed by RBI-registered banks and NBFC partners. Loan amount, interest rate, tenure and all other terms are set by the lending partner and shown in a Key Fact Statement before you sign any loan agreement.
+        </p>
       </div>
 
       {/* Bottom bar */}
       <div className="relative border-t border-white/[0.06]">
-        <div className="shell flex flex-col items-start gap-2 py-5 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">
+        <div className="shell flex flex-col items-start gap-2 py-4 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">
           <p>
-            © {new Date().getFullYear()} {site?.company_name || "Money Pay"}. All rights reserved.
+            © {new Date().getFullYear()} {site?.company_name || "MoneyPayee"}. All rights reserved.
           </p>
           <p className="text-muted">
             Designed and developed by{" "}
@@ -118,8 +136,8 @@ export function Footer() {
 function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
   return (
     <div>
-      <h3 className="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-faint">{title}</h3>
-      <ul className="mt-5 space-y-3 text-sm">
+      <h3 className="text-[0.68rem] font-bold uppercase tracking-[0.2em] leading-none text-faint">{title}</h3>
+      <ul className="mt-4 space-y-2.5 text-sm">
         {links.map(([href, label]) => (
           <li key={href}>
             <Link href={href} className="text-ink-2 transition hover:text-ink">

@@ -1,14 +1,14 @@
 "use client";
 
-import { Check, Clock3, RotateCcw, X, CircleSlash } from "lucide-react";
+import { Check, Clock3, X } from "lucide-react";
 import type { Application, ApplicationEvent, SiteSettings } from "@/lib/types";
 import { addDays, dateOnly, dateTime, rupees } from "@/lib/format";
-import { RefundBadge, StatusBadge } from "../ui";
+import { StatusBadge } from "../ui";
 import { KycReupload } from "./kyc-reupload";
 
-type Step = { title: string; detail: string; state: "done" | "active" | "todo" | "bad"; at?: string; icon?: "refund" | "no" };
+type Step = { title: string; detail: string; state: "done" | "active" | "todo" | "bad"; at?: string };
 
-export function buildTimeline(a: Application, events: ApplicationEvent[], refundDays: number): Step[] {
+export function buildTimeline(a: Application, events: ApplicationEvent[]): Step[] {
   const find = (k: ApplicationEvent["kind"]) => events.find((e) => e.kind === k);
   const steps: Step[] = [{ title: "Application submitted", detail: `₹${a.fee} fee · UTR ${a.transaction_id}`, state: "done", at: a.created_at }];
 
@@ -43,16 +43,6 @@ export function buildTimeline(a: Application, events: ApplicationEvent[], refund
   }
 
   steps.push({ title: "Not approved", detail: a.admin_note || "See the note from our team.", state: "bad", at: a.reviewed_at ?? undefined });
-
-  if (a.refund_status === "pending") {
-    const due = a.reviewed_at ? dateOnly(addDays(a.reviewed_at, refundDays)) : `${refundDays} days`;
-    steps.push({ title: "Refund in progress", detail: `₹${a.fee} to ${a.refund_upi_id ?? "your UPI ID"} · due by ${due}`, state: "active", icon: "refund", at: find("refund_due")?.created_at });
-  } else if (a.refund_status === "refunded") {
-    steps.push({ title: "Refunded", detail: `₹${a.fee} sent · refund UTR ${a.refund_reference}`, state: "done", icon: "refund", at: a.refunded_at ?? undefined });
-  } else {
-    const ev = find("no_refund");
-    if (ev) steps.push({ title: "No refund issued", detail: ev.note, state: "bad", icon: "no", at: ev.created_at });
-  }
   return steps;
 }
 
@@ -67,11 +57,7 @@ export function Timeline({ steps }: { steps: Step[] }) {
               s.state === "done" ? "bg-ok text-paper" : s.state === "active" ? "bg-brand-soft text-brand ring-2 ring-brand/30" : s.state === "bad" ? "bg-bad-soft text-bad" : "bg-white/[0.05] text-faint"
             }`}
           >
-            {s.icon === "refund" ? (
-              <RotateCcw size={13} strokeWidth={2.5} />
-            ) : s.icon === "no" ? (
-              <CircleSlash size={13} />
-            ) : s.state === "done" ? (
+            {s.state === "done" ? (
               <Check size={14} strokeWidth={3} />
             ) : s.state === "bad" ? (
               <X size={14} strokeWidth={3} />
@@ -108,7 +94,7 @@ export function ApplicationCard({
   userId?: string;
   onChanged?: () => void;
 }) {
-  const steps = buildTimeline(a, events, site?.refund_days ?? 7);
+  const steps = buildTimeline(a, events);
   return (
     <article className={`card overflow-hidden ${highlight ? "card-glow" : ""}`}>
       <div className="flex flex-wrap items-start justify-between gap-4 border-b hairline bg-gradient-to-r from-white/[0.04] to-transparent px-5 py-5 sm:px-7">
@@ -121,7 +107,6 @@ export function ApplicationCard({
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusBadge status={a.status} />
-          <RefundBadge status={a.refund_status} />
         </div>
       </div>
       {a.status === "pending" && a.kyc_status === "resubmit" && userId && onChanged && <KycReupload a={a} userId={userId} onDone={onChanged} />}
@@ -131,7 +116,6 @@ export function ApplicationCard({
           <Item k="Fee paid" v={`₹${a.fee}`} />
           <Item k="UTR" v={a.transaction_id} mono />
           <Item k="Paid to" v={a.payee_name} />
-          {a.refund_upi_id && <Item k="Refund UPI" v={a.refund_upi_id} mono />}
           {a.lender_name && <Item k="Lender" v={a.lender_name} />}
           {a.admin_note && a.status !== "rejected" && (
             <div className="border-t hairline pt-3">

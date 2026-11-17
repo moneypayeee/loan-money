@@ -36,6 +36,7 @@ import { formatPhone } from "@/lib/phone-auth";
 import { progress as getProgress, schedule, totals, withStatus, type ScheduleRowWithStatus } from "@/lib/loan-math";
 import { DOCUMENT_KINDS, REPAYMENT_METHODS, type BorrowerLoanSummary, type BorrowerPortalData, type LoanStatus } from "@/lib/types";
 import { Notice, Spinner } from "./ui";
+import { ReferPromoBanner } from "./refer/refer-promo-card";
 
 type Tab = "overview" | "repayments" | "documents" | "details" | "account";
 const TABS: { id: Tab; label: string; icon: typeof LayoutGrid }[] = [
@@ -343,6 +344,8 @@ function OverviewTab({
             <p className="mt-2 leading-relaxed text-ink-2">{loan.note}</p>
           </div>
         )}
+
+        <ReferPromoBanner />
       </div>
 
       <aside className="min-w-0 space-y-4">
