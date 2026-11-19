@@ -43,7 +43,7 @@ export async function GET() {
         return NextResponse.json({
           payee_name,
           upi_id,
-          fee: data.fee || PAYMENT.fee,
+          fee: typeof data.fee === "number" ? data.fee : (data.fee !== null && data.fee !== undefined ? Number(data.fee) : PAYMENT.fee),
           qr_path,
           qr_url: resolveQrUrl(qr_path, url),
           updated_at: data.updated_at,
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { payee_name, upi_id, qr_base64 } = body;
+    const { payee_name, upi_id, qr_base64, fee } = body;
 
     const { data: current } = await db
       .from("payment_settings")
@@ -124,6 +124,14 @@ export async function POST(req: Request) {
 
     const updatedPayee = String(payee_name || current?.payee_name || PAYMENT.payee_name).trim();
     const updatedUpi = String(upi_id || current?.upi_id || PAYMENT.upi_id).trim().toLowerCase();
+    let updatedFee = current?.fee ?? PAYMENT.fee;
+    if (fee !== undefined && fee !== null && fee !== "") {
+      const n = Number(fee);
+      if (!Number.isInteger(n) || n < 1 || n > 100000) {
+        return NextResponse.json({ error: "The fee must be a whole number of rupees between ₹1 and ₹1,00,000." }, { status: 400 });
+      }
+      updatedFee = n;
+    }
     const updatedAt = new Date().toISOString();
 
     const { error: updateErr } = await db
@@ -131,6 +139,7 @@ export async function POST(req: Request) {
       .update({
         payee_name: updatedPayee,
         upi_id: updatedUpi,
+        fee: updatedFee,
         qr_path,
         updated_at: updatedAt,
       })
@@ -145,7 +154,7 @@ export async function POST(req: Request) {
       payment: {
         payee_name: updatedPayee,
         upi_id: updatedUpi,
-        fee: current?.fee || PAYMENT.fee,
+        fee: updatedFee,
         qr_path,
         qr_url: resolveQrUrl(qr_path, url),
         updated_at: updatedAt,

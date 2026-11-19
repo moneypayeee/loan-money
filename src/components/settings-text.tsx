@@ -11,7 +11,16 @@ export function LenderName({ fallback = "our banking & lending partners" }: { fa
 export function GrievanceContact() {
   const { site } = useSettings();
   if (!site?.grievance_officer || /sample/i.test(site.grievance_officer)) {
-    return <>our support team via WhatsApp</>;
+    const email = site?.support_email || site?.grievance_email;
+    if (!email) return <>our support team</>;
+    return (
+      <>
+        our support team at{" "}
+        <a className="font-semibold text-brand hover:underline" href={`mailto:${email}`}>
+          {email}
+        </a>
+      </>
+    );
   }
   return (
     <>
@@ -27,4 +36,10 @@ export function GrievanceContact() {
       {site.grievance_phone && <>, {site.grievance_phone}</>}
     </>
   );
+}
+
+export function ApplicationFee({ prefix = "₹", fallback = 299 }: { prefix?: string; fallback?: number }) {
+  const { payment } = useSettings();
+  const fee = payment?.fee !== undefined ? payment.fee : fallback;
+  return <>{prefix}{fee}</>;
 }

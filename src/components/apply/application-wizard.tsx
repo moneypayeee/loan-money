@@ -34,8 +34,8 @@ import { FieldError, Notice } from "../ui";
 import { checkApplicantExists, checkReferralCode, normalizeReferralCode } from "@/lib/referral-system";
 
 const REF_KEY = "mp-referral-code";
-const DUP_PHONE = "An application with this mobile number already exists. Please contact us on WhatsApp for help.";
-const DUP_EMAIL = "An application with this email ID already exists. Please contact us on WhatsApp for help.";
+const DUP_PHONE = "An application with this mobile number already exists. Please contact us at support@moneypayee.in for help.";
+const DUP_EMAIL = "An application with this email ID already exists. Please contact us at support@moneypayee.in for help.";
 
 const STEPS = [
   { title: "About you", icon: UserRound },
@@ -74,6 +74,7 @@ export function ApplicationWizard({
   demo?: boolean;
 }) {
   const { site, payment, qrUrl } = useSettings();
+  const fee = payment?.fee !== undefined ? payment.fee : FEE;
   const guest = !user && !demo;
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -229,7 +230,7 @@ export function ApplicationWizard({
             ctx.fillText("Razorpay Verified Online Payment", 40, 75);
             ctx.fillStyle = "#22c55e";
             ctx.font = "bold 38px sans-serif";
-            ctx.fillText(`₹${Math.round(Number(orderData.amount) / 100) || FEE}`, 40, 135);
+            ctx.fillText(`₹${Math.round(Number(orderData.amount) / 100) || fee}`, 40, 135);
             ctx.fillStyle = "#ffffff";
             ctx.font = "15px sans-serif";
             ctx.fillText(`Payment ID: ${payId}`, 40, 185);
@@ -831,7 +832,7 @@ export function ApplicationWizard({
                         Payment ID: <strong className="font-mono text-gold">{razorpayPaymentId}</strong>
                       </p>
                       <p className="text-xs text-muted">
-                        Amount Paid: ₹{FEE} · Receipt generated and attached automatically. You can proceed directly.
+                        Amount Paid: ₹{fee} · Receipt generated and attached automatically. You can proceed directly.
                       </p>
                     </div>
                   ) : (
@@ -842,7 +843,7 @@ export function ApplicationWizard({
                         </span>
                         <h3 className="text-lg font-bold text-ink">Instant Checkout (UPI, Cards, Netbanking)</h3>
                         <p className="text-xs text-muted leading-relaxed">
-                          Pay ₹{FEE} securely using Google Pay, PhonePe, Paytm, BHIM UPI, Netbanking, or Cards. Your payment will be verified instantly without needing manual screenshot upload.
+                          Pay ₹{fee} securely using Google Pay, PhonePe, Paytm, BHIM UPI, Netbanking, or Cards. Your payment will be verified instantly without needing manual screenshot upload.
                         </p>
                       </div>
 
@@ -865,7 +866,7 @@ export function ApplicationWizard({
                             </>
                           ) : (
                             <>
-                              <CreditCard size={17} /> Pay ₹{FEE} with Razorpay
+                              <CreditCard size={17} /> Pay ₹{fee} with Razorpay
                             </>
                           )}
                         </button>
@@ -913,7 +914,7 @@ export function ApplicationWizard({
                           {payment.upi_id} {copied ? <Check size={14} className="text-ok" /> : <Copy size={14} className="text-muted" />}
                         </button>
                       )}
-                      <p className="display mt-4 text-4xl text-champagne">₹{FEE}</p>
+                      <p className="display mt-4 text-4xl text-champagne">₹{fee}</p>
                       <p className="text-xs text-muted">Scan the QR with GPay, PhonePe, or Paytm.</p>
                     </div>
                   </div>
@@ -947,7 +948,7 @@ export function ApplicationWizard({
               )}
 
               <Check2 id="payment_consent" checked={v.payment_consent} onChange={(c) => set("payment_consent", c)} error={errors.payment_consent}>
-                I understand the ₹{FEE} application fee covers verification of my documents and payment and is non-refundable. Approval
+                I understand the ₹{fee} application fee covers verification of my documents and payment and is non-refundable. Approval
                 sends my application to the lender, who decides the final loan terms.
               </Check2>
             </section>
@@ -1028,7 +1029,7 @@ export function ApplicationWizard({
             <li className="flex items-start gap-3">
               <BadgeIndianRupee size={17} className="mt-0.5 shrink-0 text-brand" />
               <span>
-                <strong>₹{FEE} fee</strong>, one-time document verification fee
+                <strong>₹{fee} fee</strong>, one-time document verification fee
               </span>
             </li>
             <li className="flex items-start gap-3">

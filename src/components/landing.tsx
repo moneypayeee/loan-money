@@ -47,7 +47,8 @@ const MARQUEE = [
 ];
 
 export function Landing() {
-  const { site, disclosed } = useSettings();
+  const { site, disclosed, payment } = useSettings();
+  const fee = payment?.fee !== undefined ? payment.fee : FEE;
   const [referOpen, setReferOpen] = useState(false);
 
   return (
@@ -82,7 +83,7 @@ export function Landing() {
             </div>
             <p className="mt-4 max-w-[34rem] text-[0.95rem] leading-relaxed text-ink-2 sm:mt-5 sm:text-lg">
               Apply in about five minutes. Get an instant loan in 48 hours through{" "}
-              {disclosed ? <strong className="font-semibold text-ink">{site?.lender_name}</strong> : "our RBI-registered lending partner"}. One-time ₹{FEE} verification fee.
+              {disclosed ? <strong className="font-semibold text-ink">{site?.lender_name}</strong> : "our RBI-registered lending partner"}. One-time ₹{fee} verification fee.
               Transparent, fast and secure.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-2.5 sm:mt-8 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
@@ -98,7 +99,7 @@ export function Landing() {
             <div className="mt-6 grid max-w-lg grid-cols-3 gap-px overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.06] sm:mt-9">
               {[
                 ["48h", "Instant loan"],
-                [`₹${FEE}`, "One-time fee"],
+                [`₹${fee}`, "One-time fee"],
                 ["100%", "Digital & secure"],
               ].map(([v, l]) => (
                 <div key={l} className="bg-paper/85 px-2.5 py-3 backdrop-blur sm:px-4 sm:py-4">
@@ -151,7 +152,7 @@ export function Landing() {
                     <span className="text-gradient">Clear &amp; upfront.</span> <span className="serif text-champagne">Zero surprises.</span>
                   </h3>
                   <p className="mt-4 max-w-sm leading-relaxed text-muted">
-                    A transparent one-time verification fee of ₹{FEE} for processing your documents and identity. No hidden fees, no surprise charges, and nothing deducted from your loan.
+                    A transparent one-time verification fee of ₹{fee} for processing your documents and identity. No hidden fees, no surprise charges, and nothing deducted from your loan.
                   </p>
                 </div>
                 <VerificationReceipt />
@@ -199,7 +200,7 @@ export function Landing() {
           <h3 className="display mt-5 text-xl">One payment. Ever.</h3>
           <ul className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
             <li className="flex items-center gap-2 text-ink-2">
-              <Check size={15} className="text-ok" /> ₹{FEE} application fee
+              <Check size={15} className="text-ok" /> ₹{fee} application fee
             </li>
             {["“Approval” fee", "“Insurance” fee", "“Release” fee"].map((t) => (
               <li key={t} className="flex items-center gap-2 text-faint line-through decoration-bad/60">
@@ -292,7 +293,7 @@ export function Landing() {
           {[
             ["Fill in your details", "Personal details, address and loan amount. Takes 30 seconds."],
             ["Upload your documents", "ID, Aadhaar, PAN and address proof matched to your category."],
-            [`Pay ₹${FEE} by UPI`, "Pay via Razorpay or UPI QR, then add your UTR and screenshot."],
+            [`Pay ₹${fee} by UPI`, "Pay via Razorpay or UPI QR, then add your UTR and screenshot."],
             ["Instant loan in 48 hours", "Our team verifies your documents and passes your file to the bank/lender."],
           ].map(([t, d], i) => (
             <li key={t} className="relative flex gap-4 pb-7 last:pb-0 md:block md:pb-0">
@@ -317,7 +318,7 @@ export function Landing() {
             <div>
               <SectionHead eyebrow="The fee, explained" title="One fee." accent="100% transparent." />
               <p className="mt-5 max-w-md text-[1.02rem] leading-relaxed text-ink-2 sm:text-lg">
-                The ₹{FEE} pays for real people to check your documents and payment. It is not interest, it is never taken from your loan, and it is the only payment
+                The ₹{fee} pays for real people to check your documents and payment. It is not interest, it is never taken from your loan, and it is the only payment
                 we will ever ask you for.
               </p>
             </div>
@@ -326,7 +327,7 @@ export function Landing() {
               <div className="p-6 sm:p-8">
                 <p className="text-[0.7rem] font-bold uppercase tracking-[0.18em] text-muted">Fee breakdown</p>
                 <p className="display mt-3 text-6xl">
-                  <span className="text-champagne">₹{FEE}</span>
+                  <span className="text-champagne">₹{fee}</span>
                   <span className="ml-2 text-base font-medium text-muted">once</span>
                 </p>
               </div>
@@ -365,7 +366,7 @@ export function Landing() {
         <div className="mx-auto mt-10 max-w-3xl divide-y divide-line rounded-2xl border border-line bg-paper/60 p-2 sm:p-5 backdrop-blur">
           {[
             ["Does approval mean I get a loan?", "Approval means your documents and payment are verified and your application is sent to the lender. The lender decides the final amount, interest rate and tenure, and shows you a Key Fact Statement before you sign."],
-            ["Is the application fee refundable?", "The ₹299 fee covers operational and verification costs incurred to manually check your documents and payment, and is non-refundable."],
+            ["Is the application fee refundable?", `The ₹${fee} fee covers operational and verification costs incurred to manually check your documents and payment, and is non-refundable.`],
             ["Who sees my documents?", "Only you and our authorised reviewers. Files sit in private storage, and review links expire after five minutes."],
             ["Can I apply again?", "Yes, once your current application has a decision. One application can be under review at a time."],
           ].map(([q, a]) => (
@@ -479,6 +480,8 @@ function Ring() {
 }
 
 function VerificationReceipt() {
+  const { payment } = useSettings();
+  const fee = payment?.fee !== undefined ? payment.fee : FEE;
   return (
     <div className="theme-dark relative mx-auto w-full max-w-[290px] shrink-0 rotate-[2deg] transition duration-500 group-hover:rotate-0">
       <div className="rounded-2xl border border-white/10 bg-[#0a160f] p-5 shadow-[0_30px_60px_-20px_rgb(0_0_0/0.9)]">
@@ -486,7 +489,7 @@ function VerificationReceipt() {
           <span className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-faint">Verification</span>
           <span className="text-[0.68rem] font-semibold text-muted">MoneyPayee</span>
         </div>
-        <p className="display mt-4 text-4xl text-ink">₹{FEE}.00</p>
+        <p className="display mt-4 text-4xl text-ink">₹{fee}.00</p>
         <p className="mt-1 text-xs text-muted">Document review &amp; KYC</p>
         <div className="perforated -mx-5 my-5 h-4 border-y border-dashed border-white/10" aria-hidden />
         <dl className="space-y-2 text-xs">

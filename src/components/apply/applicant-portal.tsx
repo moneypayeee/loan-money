@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, MessageCircle } from "lucide-react";
+import { CheckCircle2, Mail } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/use-session";
 import { useSettings } from "@/lib/settings-context";
@@ -14,12 +14,6 @@ export function ApplicantPortal() {
   const { site, payment, disclosed, loading: settingsLoading } = useSettings();
   const [justSubmitted, setJustSubmitted] = useState<string | null>(null);
   const [keepGuestForm, setKeepGuestForm] = useState(false);
-
-  const waDigits = (site?.support_phone || "").replace(/\D/g, "");
-  const waTarget = waDigits.length >= 10 ? (waDigits.length === 10 ? `91${waDigits}` : waDigits) : "";
-  const waHref = waTarget
-    ? `https://wa.me/${waTarget}?text=${encodeURIComponent(`Hi MoneyPayee team, I submitted my application${justSubmitted ? ` (Ref: ${justSubmitted})` : ""} and need assistance.`)}`
-    : `https://wa.me/?text=${encodeURIComponent(`Hi MoneyPayee team, I submitted my application${justSubmitted ? ` (Ref: ${justSubmitted})` : ""} and need assistance.`)}`;
 
   if (!supabase) {
     return (
@@ -54,20 +48,20 @@ export function ApplicantPortal() {
                 Thank you! Reference: <span className="font-mono text-gold">{justSubmitted}</span>
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-ink-2">
-                Your documents and ₹299 verification fee have been received. Our team will verify your details and forward your application to the banking/lending partner. They will contact you directly regarding your loan.
+                Your documents and verification fee have been received. Our team will verify your details and forward your application to the banking/lending partner. They will contact you directly regarding your loan.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
-            <a
-              href={waHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-primary btn-md font-bold bg-[#25D366]/20 border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/30"
-            >
-              <MessageCircle size={16} /> Any issues? Chat on WhatsApp
-            </a>
+            {site?.support_email && (
+              <a
+                href={`mailto:${site.support_email}?subject=${encodeURIComponent(`Help with my application ${justSubmitted}`)}`}
+                className="btn btn-outline btn-md font-bold"
+              >
+                <Mail size={16} /> Any issues? Email {site.support_email}
+              </a>
+            )}
             <button
               type="button"
               onClick={() => setJustSubmitted(null)}

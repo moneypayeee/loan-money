@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, ChevronRight, FileText, HelpCircle, Home, ListOrdered, Menu, MessageCircle, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, FileText, HelpCircle, Home, ListOrdered, Menu, X } from "lucide-react";
 import { Logo } from "./ui";
 import { DisclosureBar } from "./lender-disclosure";
 import { useSettings } from "@/lib/settings-context";
@@ -15,16 +15,8 @@ const LINKS = [
   { href: "/terms", label: "Terms & Conditions", icon: FileText },
 ];
 
-function whatsappSupportUrl(phone?: string | null) {
-  const digits = (phone || "").replace(/\D/g, "");
-  const target = digits.length >= 10 ? (digits.length === 10 ? `91${digits}` : digits) : "";
-  const text = encodeURIComponent("Hi MoneyPayee team, I need assistance with my loan application.");
-  return target ? `https://wa.me/${target}?text=${text}` : `https://wa.me/?text=${text}`;
-}
-
 export function Navbar() {
   const pathname = usePathname();
-  const { site } = useSettings();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -39,7 +31,6 @@ export function Navbar() {
 
   if (pathname.startsWith("/admin")) return null;
   const active = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
-  const waHref = whatsappSupportUrl(site?.support_phone);
 
   return (
     <>
@@ -56,14 +47,6 @@ export function Navbar() {
             <Logo />
             <DesktopNav pathname={pathname} />
             <div className="hidden items-center gap-2 lg:flex">
-              <a
-                href={waHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-outline btn-sm text-[#25D366] border-[#25D366]/30 hover:border-[#25D366]/60"
-              >
-                <MessageCircle size={14} /> WhatsApp Help
-              </a>
               <Link href="/apply" className="btn btn-gold btn-sm">
                 Apply now <ArrowUpRight size={14} />
               </Link>
@@ -71,15 +54,6 @@ export function Navbar() {
             <div className="flex items-center gap-1.5 lg:hidden">
               {!open && (
                 <>
-                  <a
-                    href={waHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="WhatsApp Help"
-                    className="btn btn-outline btn-sm !px-2.5 text-[#25D366] border-[#25D366]/30"
-                  >
-                    <MessageCircle size={15} />
-                  </a>
                   {!pathname.startsWith("/apply") && (
                     <Link href="/apply" className="btn btn-gold btn-sm !px-3">
                       Apply now
@@ -100,7 +74,7 @@ export function Navbar() {
           </div>
         </header>
       </div>
-      <MobileSidebar open={open} onClose={close} active={active} waHref={waHref} />
+      <MobileSidebar open={open} onClose={close} active={active} />
     </>
   );
 }
@@ -176,12 +150,10 @@ function MobileSidebar({
   open,
   onClose,
   active,
-  waHref,
 }: {
   open: boolean;
   onClose: () => void;
   active: (href: string) => boolean;
-  waHref: string;
 }) {
   const { site, disclosed } = useSettings();
 
@@ -251,15 +223,6 @@ function MobileSidebar({
           <Link href="/apply" tabIndex={open ? 0 : -1} className="btn btn-gold w-full">
             Start your application <ArrowUpRight size={15} />
           </Link>
-          <a
-            href={waHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            tabIndex={open ? 0 : -1}
-            className="btn btn-outline w-full text-[#25D366] border-[#25D366]/30"
-          >
-            <MessageCircle size={15} /> Chat on WhatsApp
-          </a>
         </div>
       </aside>
     </div>

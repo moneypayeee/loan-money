@@ -9,7 +9,6 @@ import {
   Gift,
   Landmark,
   Loader2,
-  MessageCircle,
   Sparkles,
   Users,
   X,
@@ -19,7 +18,6 @@ import {
   DEFAULT_REFERRAL_CONFIG,
   fetchPublicReferralConfig,
   generateShareUrl,
-  generateWhatsAppMessage,
   getMyReferralPortal,
   type PayoutRequest,
   type ReferralConfig,
@@ -102,17 +100,6 @@ export function ReferModal({
     void navigator.clipboard.writeText(shareUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
-  };
-
-  const handleWhatsAppShare = () => {
-    if (!refCode) return;
-    const msg = generateWhatsAppMessage(
-      refCode,
-      cfg.coins_per_referral,
-      coinsToRupees(cfg.coins_per_referral, cfg.rupees_per_1000_coins)
-    );
-    const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    window.open(waUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -253,14 +240,6 @@ export function ReferModal({
                     </button>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleWhatsAppShare}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#25D366]/40 bg-[#25D366]/20 px-4 py-3 text-sm font-bold text-[#25D366] hover:bg-[#25D366]/30 transition shadow-lg shadow-[#25D366]/10"
-                >
-                  <MessageCircle size={18} /> Share Directly on WhatsApp
-                </button>
               </div>
 
               {payouts.length > 0 && (

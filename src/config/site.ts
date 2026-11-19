@@ -24,11 +24,11 @@ export const SITE: SiteSettings = {
   lender_reg_no: "",
   lender_website: "",
 
-  support_email: "",
+  support_email: "support@moneypayee.in",
   support_phone: "",
 
   grievance_officer: "",
-  grievance_email: "",
+  grievance_email: "support@moneypayee.in",
   grievance_phone: "",
 
   // Standard review turnaround window (days).

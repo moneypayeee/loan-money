@@ -14,7 +14,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { SectionHead } from "@/components/section-head";
 import { DisclosureCard } from "@/components/lender-disclosure";
-import { GrievanceContact, LenderName } from "@/components/settings-text";
+import { ApplicationFee, GrievanceContact, LenderName } from "@/components/settings-text";
 import { TermsDocumentViewer } from "@/components/terms-document-viewer";
 import { TERMS_PDF_PATH } from "@/config/terms-data";
 
@@ -45,7 +45,7 @@ export default function TermsPage() {
           />
           <Glance
             icon={<BadgeIndianRupee size={18} />}
-            value="₹299 One-Time"
+            value={<><ApplicationFee /> One-Time</>}
             label="Service fee for manual document review."
           />
           <Glance
@@ -72,7 +72,7 @@ export default function TermsPage() {
             </p>
             <ol className="mt-8 space-y-4">
               {[
-                [MessageSquareWarning, "Raise your inquiry or complaint", "Email our grievance officer with your application reference code and transaction UTR."],
+                [MessageSquareWarning, "Raise your inquiry or complaint", "Email support@moneypayee.in with your application reference code and transaction UTR."],
                 [Clock3, "Acknowledged in 2 working days", "Our compliance team will acknowledge receipt of your notice within 48 hours."],
                 [Check, "Resolved within 30 days", "We strive to investigate and close every inquiry within 30 days."],
                 [Landmark, "RBI Integrated Ombudsman", "For matters involving RBI-regulated lending partners, contact the RBI Integrated Ombudsman at cms.rbi.org.in."],

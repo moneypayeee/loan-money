@@ -16,6 +16,7 @@ import {
   Menu,
   ReceiptIndianRupee,
   ScanFace,
+  Settings,
   RefreshCw,
   RotateCcw,
   ShieldX,
@@ -39,12 +40,13 @@ import { ReferralsPanel } from "./referrals-panel";
 import { ActivityPanel } from "./activity-panel";
 import { ReportsPanel } from "./reports-panel";
 import { TeamPanel } from "./team-panel";
+import { SettingsPanel } from "./settings-panel";
 import { KycPanel } from "./kyc-panel";
 import { buildCustomers, buildLoanRows, type Customer, type LoanRow } from "./portfolio";
 import { ApplicationDrawer } from "./application-drawer";
 import { demoAccess, demoApps, demoLoans, demoPayments, demoStats } from "./demo-data";
 
-export type Tab = "overview" | "customers" | "applications" | "kyc" | "loans" | "fees" | "referrals" | "activity" | "reports" | "team";
+export type Tab = "overview" | "customers" | "applications" | "kyc" | "loans" | "fees" | "referrals" | "activity" | "reports" | "team" | "settings";
 
 export type AdminCtx = {
   apps: Application[];
@@ -370,6 +372,8 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
             <ActivityPanel ctx={ctx} />
           ) : tab === "reports" ? (
             <ReportsPanel ctx={ctx} />
+          ) : tab === "settings" ? (
+            <SettingsPanel ctx={ctx} />
           ) : (
             <TeamPanel ctx={ctx} />
           )}
@@ -398,11 +402,12 @@ const TITLES: Record<Tab, [string, string]> = {
   applications: ["Applications", "Check payments and decide"],
   kyc: ["KYC verification", "Check identity and address documents before the decision"],
   loans: ["Loans", "What the partner bank sanctioned and disbursed for each approved applicant"],
-  fees: ["Fee payments", "Every ₹299 application fee: UTRs and verification"],
+  fees: ["Fee payments", "Every application fee: UTRs and verification"],
   referrals: ["Referrals & Coin Rewards", "Configure coins, conversion rates, and process cash redemption requests"],
   activity: ["Activity", "Who did what, and when"],
   reports: ["Reports", "Totals for any period, and CSV exports"],
   team: ["Admins", "Who can sign in to this console"],
+  settings: ["Settings", "Application fee and the payment details applicants see"],
 };
 
 function AdminSidebar({
@@ -506,6 +511,7 @@ function AdminSidebar({
           <Item t="reports" label="Reports" icon={BarChart3} />
           <Item t="activity" label="Activity" icon={History} />
           <Item t="team" label="Admins" icon={UserCog} />
+          <Item t="settings" label="Settings" icon={Settings} />
           <Link
             href="/"
             target="_blank"

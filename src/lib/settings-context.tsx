@@ -37,12 +37,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/admin/payment-settings");
       if (res.ok) {
         const data = await res.json();
-        if (data.payee_name || data.upi_id || data.qr_path) {
+        if (data.fee !== undefined || data.payee_name || data.upi_id || data.qr_path) {
           setPayment((prev) => ({
             ...prev,
             payee_name: data.payee_name || prev.payee_name,
             upi_id: data.upi_id || prev.upi_id,
-            fee: data.fee || prev.fee,
+            fee: typeof data.fee === "number" ? data.fee : (data.fee !== undefined ? Number(data.fee) : prev.fee),
             qr_path: data.qr_path || prev.qr_path,
           }));
           if (data.qr_url) {

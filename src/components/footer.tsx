@@ -2,20 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, Mail, MessageCircle, Phone, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, Mail, Phone, ShieldCheck } from "lucide-react";
 import { Logo } from "./ui";
 import { useSettings } from "@/lib/settings-context";
 import { FEE } from "@/lib/types";
 
 export function Footer() {
   const pathname = usePathname();
-  const { site } = useSettings();
+  const { site, payment } = useSettings();
   if (pathname.startsWith("/admin")) return null;
-  const waDigits = (site?.support_phone || "").replace(/\D/g, "");
-  const waTarget = waDigits.length >= 10 ? (waDigits.length === 10 ? `91${waDigits}` : waDigits) : "";
-  const waHref = waTarget
-    ? `https://wa.me/${waTarget}?text=${encodeURIComponent("Hi MoneyPayee team, I need help with my loan application.")}`
-    : `https://wa.me/?text=${encodeURIComponent("Hi MoneyPayee team, I need help with my loan application.")}`;
 
   const hasEmail = Boolean(site?.support_email && !/example\.com/i.test(site.support_email));
   const hasPhone = Boolean(site?.support_phone && !/90000\s*00000/.test(site.support_phone));
@@ -60,16 +55,6 @@ export function Footer() {
           <h3 className="text-[0.68rem] font-bold uppercase tracking-[0.2em] leading-none text-faint">Support</h3>
           <div className="mt-4 space-y-2.5 text-sm text-ink-2">
             <p className="text-xs leading-relaxed text-muted">Need help with your application, KYC, or fee verification?</p>
-            <div>
-              <a
-                href={waHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg border border-[#25D366]/35 bg-[#25D366]/10 px-3.5 py-2 text-xs font-bold text-[#25D366] transition hover:bg-[#25D366]/20"
-              >
-                <MessageCircle size={14} /> Chat on WhatsApp
-              </a>
-            </div>
             {hasEmail && (
               <p>
                 <a className="inline-flex items-center gap-2 text-xs hover:text-ink" href={`mailto:${site!.support_email}`}>
@@ -103,7 +88,7 @@ export function Footer() {
       {/* Disclosures */}
       <div className="shell relative space-y-2 border-t border-white/[0.06] py-5 text-xs leading-relaxed text-faint">
         <p>
-          <span className="text-muted">Application fee:</span> a one-time non-refundable application fee of ₹{FEE} is charged for document and payment verification. The fee is not interest and is not deducted from any loan.
+          <span className="text-muted">Application fee:</span> a one-time non-refundable application fee of ₹{payment?.fee ?? FEE} is charged for document and payment verification. The fee is not interest and is not deducted from any loan.
         </p>
         <p>
           <span className="text-muted">Lending partners:</span> loans are issued and managed by RBI-registered banks and NBFC partners. Loan amount, interest rate, tenure and all other terms are set by the lending partner and shown in a Key Fact Statement before you sign any loan agreement.
@@ -112,11 +97,11 @@ export function Footer() {
 
       {/* Bottom bar */}
       <div className="relative border-t border-white/[0.06]">
-        <div className="shell flex flex-col items-start gap-2 py-4 text-xs text-faint sm:flex-row sm:items-center sm:justify-between">
+        <div className="shell flex flex-col items-start gap-2 py-4 text-xs text-faint sm:flex-row sm:items-center sm:justify-between lg:grid lg:grid-cols-3">
           <p>
             © {new Date().getFullYear()} {site?.company_name || "MoneyPayee"}. All rights reserved.
           </p>
-          <p className="text-muted">
+          <p className="text-muted lg:text-center">
             Designed and developed by{" "}
             <a
               href="https://www.rakvih.in"

@@ -8,7 +8,7 @@
 -- What it sets up
 --   • admin_users            – who can use /admin
 --   • site_settings          – lender disclosure, grievance officer, refund policy
---   • payment_settings       – payee name, UPI ID, QR image (fee fixed at ₹299)
+--   • payment_settings       – payee name, UPI ID, QR image, application fee (set in admin Settings)
 --   • applications           – one row per application, incl. refund tracking
 --   • application_kyc        – private KYC details (1:1 with applications)
 --   • application_events     – audit timeline shown to applicant and admin
@@ -89,14 +89,14 @@ drop policy if exists "Public site settings" on public.site_settings;
 create policy "Public site settings" on public.site_settings for select using (true);
 
 -- ---------------------------------------------------------------------
--- 3. Payment settings (fee fixed at ₹299)
+-- 3. Payment settings (application fee is editable in the admin Settings tab)
 -- ---------------------------------------------------------------------
 create table if not exists public.payment_settings (
   id         integer primary key check (id = 1),
   qr_path    text,
   payee_name text not null default '',
   upi_id     text not null default '',
-  fee        integer not null default 299 check (fee = 299),
+  fee        integer not null default 299 check (fee between 1 and 100000),
   updated_at timestamptz not null default now()
 );
 insert into public.payment_settings(id) values (1) on conflict (id) do nothing;
@@ -106,6 +106,18 @@ grant select on public.payment_settings to anon, authenticated;
 drop policy if exists "Public payment details" on public.payment_settings;
 drop policy if exists "Admin edits payment details" on public.payment_settings; -- writes go through RPC now
 create policy "Public payment details" on public.payment_settings for select using (true);
+
+-- Editable fee: replace the old "fee = 299" rules on existing databases with a ₹1 – ₹1,00,000 range.
+do $$
+declare r record;
+begin
+  for r in select c.conrelid::regclass as tbl, c.conname from pg_constraint c
+            where c.contype = 'c' and c.conrelid in ('public.payment_settings'::regclass)
+              and pg_get_constraintdef(c.oid) ~* '\mfee\M' loop
+    execute format('alter table %s drop constraint %I', r.tbl, r.conname);
+  end loop;
+end $$;
+alter table public.payment_settings add constraint payment_settings_fee_check check (fee between 1 and 100000);
 
 -- ---------------------------------------------------------------------
 -- 4. Applications
@@ -119,7 +131,7 @@ create table if not exists public.applications (
   requested_amount integer not null check (requested_amount between 1000 and 500000),
   transaction_id   text not null unique check (transaction_id ~ '^[A-Za-z0-9]{6,40}$'),
   proof_path       text not null,
-  fee              integer not null default 299 check (fee = 299),
+  fee              integer not null default 299 check (fee between 1 and 100000),
   payee_name       text not null,
   upi_id           text not null,
   qr_path          text not null,
@@ -130,6 +142,17 @@ create table if not exists public.applications (
   reviewed_at      timestamptz,
   created_at       timestamptz not null default now()
 );
+-- Editable fee: replace the old "fee = 299" rule on existing databases (each application keeps the fee it was charged).
+do $$
+declare r record;
+begin
+  for r in select c.conname from pg_constraint c
+            where c.contype = 'c' and c.conrelid = 'public.applications'::regclass
+              and pg_get_constraintdef(c.oid) ~* '\mfee\M' loop
+    execute format('alter table public.applications drop constraint %I', r.conname);
+  end loop;
+end $$;
+alter table public.applications add constraint applications_fee_check check (fee between 1 and 100000);
 -- Columns added after v1 (no-ops when already present)
 alter table public.applications add column if not exists kyc_verified boolean not null default false;
 alter table public.applications add column if not exists ref_code text;
@@ -523,7 +546,7 @@ begin
     proof_path, fee, payee_name, upi_id, qr_path, refund_upi_id, lender_name, lender_reg_no, contact_email, referred_by_code)
   values (
     v_id, v_ref, v_uid, trim(p_full_name), trim(p_phone), p_category, p_requested_amount, v_txn,
-    p_proof_path, 299, v_payment.payee_name, v_payment.upi_id, v_payment.qr_path, v_refund,
+    p_proof_path, v_payment.fee, v_payment.payee_name, v_payment.upi_id, v_payment.qr_path, v_refund,
     v_site.lender_name, v_site.lender_reg_no,
     -- optional email saved in the account's metadata at sign-up
     (select case when e ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then lower(e) end
@@ -546,7 +569,7 @@ begin
     case when lower(trim(coalesce(p_kyc->>'email',''))) ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then lower(trim(p_kyc->>'email')) end);
 
   insert into public.application_events(application_id, kind, note, actor)
-  values (v_id, 'submitted', 'Application submitted with ₹299 fee (UTR ' || v_txn || ')', v_uid);
+  values (v_id, 'submitted', 'Application submitted with ₹' || v_payment.fee || ' fee (UTR ' || v_txn || ')', v_uid);
 
   if v_ref_input <> '' then
     select * into v_rcfg from public.referral_config where id = 1;

@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui";
 
 export const metadata: Metadata = {
   title: "Apply",
-  description: "Submit your loan application, upload documents, pay the one-time ₹299 fee and track your decision.",
+  description: "Submit your loan application, upload documents, pay the one-time application fee and track your decision.",
 };
 
 export default function ApplyPage() {

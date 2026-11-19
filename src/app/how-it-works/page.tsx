@@ -3,12 +3,12 @@ import Link from "next/link";
 import { ArrowRight, CarFront, Check, Clock3, FileCheck2, GraduationCap, ImageIcon, QrCode, ScanSearch, UserPlus, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { DisclosureCard } from "@/components/lender-disclosure";
-import { LenderName } from "@/components/settings-text";
+import { ApplicationFee, LenderName } from "@/components/settings-text";
 import { ReferralSection } from "@/components/refer/referral-section";
 
 export const metadata: Metadata = {
   title: "How it works",
-  description: "The four steps from account to decision, what documents you need, and how the one-time ₹299 fee works.",
+  description: "The four steps from account to decision, what documents you need, and how the one-time application fee works.",
 };
 
 const STEPS = [
@@ -24,8 +24,8 @@ const STEPS = [
   },
   {
     icon: QrCode,
-    title: "Pay the ₹299 application fee",
-    body: "Scan the QR with any UPI app and pay ₹299. Check that the payee name matches what's shown on the page. Then enter the UTR from your UPI app, upload the payment screenshot, and provide your UPI ID for verification.",
+    title: "Pay the application fee",
+    body: "Scan the QR with any UPI app and pay the fee shown on the page. Check that the payee name matches what's shown on the page. Then enter the UTR from your UPI app, upload the payment screenshot, and provide your UPI ID for verification.",
   },
   {
     icon: ScanSearch,
@@ -123,12 +123,12 @@ export default function HowItWorksPage() {
       {/* ============================ FEE — white ============================ */}
       <section className="theme-light">
         <div className="shell py-14 sm:py-[4.5rem]">
-          <SectionHead eyebrow="The fee" title="₹299," accent="one-time verification fee." />
+          <SectionHead eyebrow="The fee" title={<><ApplicationFee />,</>} accent="one-time verification fee." />
           <div className="mt-9 grid items-start gap-6 lg:grid-cols-2">
             <div className="card card-glow p-6 sm:p-8">
               <p className="text-[0.7rem] font-bold uppercase tracking-[0.18em] text-muted">Application fee</p>
               <p className="display mt-2 text-5xl">
-                <span className="text-champagne">₹299</span>
+                <span className="text-champagne"><ApplicationFee /></span>
                 <span className="ml-2 text-base font-medium text-muted">once</span>
               </p>
               <ul className="mt-6 space-y-3.5 text-[0.95rem] leading-relaxed text-ink-2">
@@ -158,7 +158,7 @@ export default function HowItWorksPage() {
   );
 }
 
-function SectionHead({ eyebrow, title, accent }: { eyebrow: string; title: string; accent?: string }) {
+function SectionHead({ eyebrow, title, accent }: { eyebrow: string; title: React.ReactNode; accent?: string }) {
   return (
     <div className="max-w-2xl">
       <span className="eyebrow">{eyebrow}</span>

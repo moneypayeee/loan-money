@@ -24,7 +24,17 @@ export function TermsModal({ forceOpen = false }: { forceOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<1 | 2>(1);
   const [accepted, setAccepted] = useState(false);
+  const [needAccept, setNeedAccept] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [tickHint, setTickHint] = useState(false);
+
+  const finish = () => {
+    try {
+      sessionStorage.setItem("mp_terms_accepted", "1");
+    } catch {}
+    setNeedAccept(false);
+    setOpen(false);
+  };
 
   useEffect(() => {
     try {
@@ -274,28 +284,6 @@ export function TermsModal({ forceOpen = false }: { forceOpen?: boolean }) {
             </article>
           ))}
 
-          {page === 2 && (
-            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs sm:text-sm text-emerald-300 space-y-3">
-              <div className="flex items-center gap-2 font-semibold">
-                <CheckCircle2 size={16} />
-                <span>Electronic Acceptance</span>
-              </div>
-              <p className="text-ink-2 leading-relaxed">
-                Please confirm below that you have read and agree to these Terms and Conditions before continuing.
-              </p>
-              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-black/25 p-3 text-ink">
-                <input
-                  type="checkbox"
-                  checked={accepted}
-                  onChange={(e) => setAccepted(e.target.checked)}
-                  className="mt-0.5 size-4 accent-emerald-500 rounded"
-                />
-                <span className="text-xs sm:text-sm font-semibold leading-snug">
-                  I have read and accept the Terms and Conditions.
-                </span>
-              </label>
-            </div>
-          )}
         </div>
 
         {/* Bottom Actions Footer */}
@@ -334,18 +322,19 @@ export function TermsModal({ forceOpen = false }: { forceOpen?: boolean }) {
             </Link>
             <button
               type="button"
-              disabled={page === 2 && !accepted}
               onClick={() => {
                 if (page === 1) {
                   changePage(2);
+                } else if (!accepted) {
+                  setTickHint(false);
+                  setNeedAccept(true);
                 } else {
-                  try {
-                    sessionStorage.setItem("mp_terms_accepted", "1");
-                  } catch {}
-                  setOpen(false);
+                  finish();
                 }
               }}
-              className="btn btn-primary btn-sm text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+              className={`btn btn-sm text-xs font-bold text-white transition-colors ${
+                page === 1 || accepted ? "btn-primary" : "border border-red-500 bg-red-600 hover:bg-red-500"
+              }`}
             >
               {page === 1 ? (
                 <>Next Page &rarr;</>
@@ -358,6 +347,52 @@ export function TermsModal({ forceOpen = false }: { forceOpen?: boolean }) {
           </div>
         </div>
       </div>
+
+      {/* "Please accept" pop-up when Accept & Continue is clicked before ticking the box */}
+      {needAccept && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="terms-accept-title">
+          <div className="relative w-full max-w-md rounded-2xl border border-emerald-500/30 bg-[#0b140e] p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setNeedAccept(false)}
+              className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-muted transition hover:bg-white/10 hover:text-ink"
+              aria-label="Back to the Terms"
+            >
+              <X size={17} />
+            </button>
+            <div className="flex items-center gap-2 font-semibold text-emerald-300">
+              <CheckCircle2 size={18} />
+              <h3 id="terms-accept-title">Electronic Acceptance</h3>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-ink-2">
+              Please confirm below that you have read and agree to these Terms and Conditions before continuing.
+            </p>
+            <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-black/25 p-3 text-ink">
+              <input
+                type="checkbox"
+                autoFocus
+                checked={accepted}
+                onChange={(e) => {
+                  setAccepted(e.target.checked);
+                  setTickHint(false);
+                }}
+                className="mt-0.5 size-4 rounded accent-emerald-500"
+              />
+              <span className="text-sm font-semibold leading-snug">I have read and accept the Terms and Conditions.</span>
+            </label>
+            {tickHint && <p className="mt-2 text-xs font-semibold text-red-400">Tick the box above to continue.</p>}
+            <button
+              type="button"
+              onClick={() => (accepted ? finish() : setTickHint(true))}
+              className={`btn btn-sm mt-5 w-full font-bold text-white transition-colors ${
+                accepted ? "btn-primary" : "border border-red-500 bg-red-600 hover:bg-red-500"
+              }`}
+            >
+              <CheckCircle2 size={14} /> Accept &amp; Continue
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
