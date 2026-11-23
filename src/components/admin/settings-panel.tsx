@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BadgeIndianRupee, Check, Loader2, QrCode, Upload } from "lucide-react";
+import { BadgeIndianRupee, Check, Loader2, Percent, QrCode, Upload } from "lucide-react";
+import { PAYMENT } from "@/config/site";
 import { useSettings } from "@/lib/settings-context";
 import type { AdminCtx } from "./admin-console";
 
@@ -26,8 +27,77 @@ export function SettingsPanel({ ctx }: { ctx: AdminCtx }) {
   return (
     <div className="grid gap-5 xl:grid-cols-2">
       <FeeCard ctx={ctx} />
+      <EmiRateCard ctx={ctx} />
       <PaymentDetailsCard ctx={ctx} />
     </div>
+  );
+}
+
+function EmiRateCard({ ctx }: { ctx: AdminCtx }) {
+  const { payment, updatePayment } = useSettings();
+  const current = payment?.emi_annual_rate ?? PAYMENT.emi_annual_rate;
+  const [value, setValue] = useState(String(current));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setValue(String(current)), [current]);
+
+  const rate = Number(value);
+  const valid = value.trim() !== "" && Number.isFinite(rate) && rate >= 0 && rate <= 60 && Number(rate.toFixed(2)) === rate;
+  const changed = valid && rate !== current;
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!changed || saving) return;
+    if (ctx.demo) return ctx.toast("bad", "Demo mode: settings can't be saved.");
+    setSaving(true);
+    try {
+      const saved = await savePaymentSettings({ emi_annual_rate: rate });
+      updatePayment(saved, saved.qr_url);
+      ctx.toast("ok", `EMI estimates now use ${saved.emi_annual_rate}% a year.`);
+    } catch (error) {
+      ctx.toast("bad", error instanceof Error ? error.message : "Could not save the EMI estimate rate.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="card p-6">
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-9 place-items-center rounded-xl bg-gold/15 text-gold">
+          <Percent size={18} aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="font-bold text-ink">EMI estimate rate</h2>
+          <p className="text-xs text-muted">Annual rate used for estimates on the application form</p>
+        </div>
+      </div>
+
+      <form onSubmit={save} className="mt-5 space-y-3">
+        <label className="block text-xs font-semibold text-muted">
+          Annual estimate rate (%)
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            max={60}
+            step="0.01"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            className="mt-1 font-mono text-lg font-semibold"
+            aria-invalid={!valid}
+            required
+          />
+        </label>
+        {!valid && <p className="text-xs text-bad">Enter a rate from 0% to 60% with up to two decimal places.</p>}
+        <p className="text-xs text-muted">The lender sets the final interest rate.</p>
+        <div className="flex justify-end pt-1">
+          <button type="submit" disabled={!changed || saving} className="btn btn-gold btn-sm font-bold">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save estimate rate
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 

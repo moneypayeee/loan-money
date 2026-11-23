@@ -28,7 +28,16 @@ export function Footer() {
           <p className="mt-3.5 max-w-xs text-sm leading-relaxed text-muted">
             MoneyPayee is a loan application broker platform. We verify your application; our banking &amp; lending partners manage every loan and credit decision.
           </p>
-          <Link href="/apply" className="btn btn-gold btn-sm mt-4">
+          <Link
+            href="/apply"
+            onNavigate={(event) => {
+              if (pathname === "/apply") {
+                event.preventDefault();
+                window.scrollTo({ top: 0 });
+              }
+            }}
+            className="btn btn-gold btn-sm mt-4"
+          >
             Start your application <ArrowUpRight size={14} />
           </Link>
         </div>
@@ -97,11 +106,11 @@ export function Footer() {
 
       {/* Bottom bar */}
       <div className="relative border-t border-white/[0.06]">
-        <div className="shell flex flex-col items-start gap-2 py-4 text-xs text-faint sm:flex-row sm:items-center sm:justify-between lg:grid lg:grid-cols-3">
+        <div className="shell flex flex-col items-center gap-2 py-4 text-center text-xs text-faint sm:flex-row sm:justify-between sm:text-left">
           <p>
             © {new Date().getFullYear()} {site?.company_name || "MoneyPayee"}. All rights reserved.
           </p>
-          <p className="text-muted lg:text-center">
+          <p className="text-muted sm:text-right">
             Designed and developed by{" "}
             <a
               href="https://www.rakvih.in"

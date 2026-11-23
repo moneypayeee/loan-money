@@ -43,6 +43,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             payee_name: data.payee_name || prev.payee_name,
             upi_id: data.upi_id || prev.upi_id,
             fee: typeof data.fee === "number" ? data.fee : (data.fee !== undefined ? Number(data.fee) : prev.fee),
+            emi_annual_rate: data.emi_annual_rate ?? prev.emi_annual_rate,
             qr_path: data.qr_path || prev.qr_path,
           }));
           if (data.qr_url) {

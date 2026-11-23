@@ -99,6 +99,9 @@ create table if not exists public.payment_settings (
   fee        integer not null default 299 check (fee between 1 and 100000),
   updated_at timestamptz not null default now()
 );
+alter table public.payment_settings
+  add column if not exists emi_annual_rate numeric(4,2) not null default 18
+  check (emi_annual_rate between 0 and 60);
 insert into public.payment_settings(id) values (1) on conflict (id) do nothing;
 alter table public.payment_settings enable row level security;
 revoke all on public.payment_settings from anon, authenticated;

@@ -1,11 +1,11 @@
 import { Landing } from "@/components/landing";
-import { TermsModal } from "@/components/terms-modal";
+import { QuickApplicationModal } from "@/components/quick-application-modal";
 
 export default function Page() {
   return (
     <>
       <Landing />
-      <TermsModal />
+      <QuickApplicationModal />
     </>
   );
 }

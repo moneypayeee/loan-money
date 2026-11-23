@@ -407,7 +407,7 @@ const TITLES: Record<Tab, [string, string]> = {
   activity: ["Activity", "Who did what, and when"],
   reports: ["Reports", "Totals for any period, and CSV exports"],
   team: ["Admins", "Who can sign in to this console"],
-  settings: ["Settings", "Application fee and the payment details applicants see"],
+  settings: ["Settings", "Application fee, payment details and the EMI estimate rate"],
 };
 
 function AdminSidebar({

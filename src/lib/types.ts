@@ -35,6 +35,7 @@ export type PaymentSettings = {
   payee_name: string;
   upi_id: string;
   fee: number;
+  emi_annual_rate: number;
 };
 
 export type Application = {

@@ -1,7 +1,6 @@
 export type TermClause = {
   id: number;
   title: string;
-  page: 1 | 2;
   body?: string;
   intro?: string;
   bullets?: string[];
@@ -11,19 +10,16 @@ export type TermClause = {
 
 export const TERMS_DOCUMENT_TITLE = "MONEY PAY";
 export const TERMS_DOCUMENT_SUBTITLE = "LOAN APPLICATION ASSISTANCE – TERMS & CONDITIONS";
-export const TERMS_PDF_PATH = "/MoneyPay_Terms_and_Conditions.pdf";
 
 export const TERMS_CLAUSES: TermClause[] = [
   // Page 1
   {
     id: 1,
-    page: 1,
     title: "1. Application / Service Fee",
     body: "The applicant agrees to pay the applicable application assistance or service fee determined by MoneyPay for the selected services. The applicable fee may vary depending on the nature, scope and requirements of the services requested.\n\nThe exact fee shall be communicated and displayed to the applicant before payment. By proceeding with the payment, the applicant acknowledges and accepts the applicable fee.",
   },
   {
     id: 2,
-    page: 1,
     title: "2. Non-Refundable Fee Policy",
     important: true,
     intro: "All application assistance and service fees are non-refundable once MoneyPay has commenced the agreed services or application processing.",
@@ -40,32 +36,27 @@ export const TERMS_CLAUSES: TermClause[] = [
   },
   {
     id: 3,
-    page: 1,
     title: "3. No Guarantee of Loan Approval",
     important: true,
     body: "MoneyPay does not guarantee or promise loan approval, sanction, disbursement or any specific loan amount. Payment of the application or service fee does not mean that the applicant's loan will be approved.\n\nThe final decision regarding loan approval, eligibility, interest rates, loan amount and disbursement rests entirely with the respective bank, NBFC or authorised lending institution.",
   },
   {
     id: 4,
-    page: 1,
     title: "4. Applicant Information and Documents",
     body: "The applicant is responsible for providing accurate, complete and genuine personal, financial, employment and supporting document information.\n\nMoneyPay shall not be responsible for incorrect, incomplete, misleading or fraudulent information submitted by the applicant.",
   },
   {
     id: 5,
-    page: 1,
     title: "5. Loan Eligibility and Verification",
     body: "Loan approval is subject to the lender's internal policies, credit score, financial eligibility, document verification, repayment capacity and other applicable criteria. MoneyPay has no authority to override the lender's independent decision.",
   },
   {
     id: 6,
-    page: 1,
     title: "6. Third-Party Decisions and Delays",
     body: "MoneyPay shall not be responsible for loan rejection, changes in lending policies, verification delays or other decisions independently made by banks, NBFCs or authorised lending institutions, provided MoneyPay has fulfilled its own contractual and legal obligations.",
   },
   {
     id: 7,
-    page: 1,
     title: "7. Additional Charges",
     body: "Any additional service fees or third-party charges, where applicable, shall be clearly communicated to the applicant separately before payment. No undisclosed charges shall be imposed.",
   },
@@ -73,31 +64,26 @@ export const TERMS_CLAUSES: TermClause[] = [
   // Page 2
   {
     id: 8,
-    page: 2,
     title: "8. Privacy and Information Sharing",
     body: "The applicant consents to MoneyPay collecting and processing the information necessary to provide the requested services, in accordance with applicable data protection laws and the MoneyPay Privacy Policy. Information may be shared with relevant lending institutions where necessary and lawfully authorised.",
   },
   {
     id: 9,
-    page: 2,
     title: "9. Cancellation of Application",
     body: "The applicant may request cancellation of the application through MoneyPay's official communication channels. If the agreed services have already commenced, the non-refundable fee policy under Clause 2 shall apply, subject to applicable law.",
   },
   {
     id: 10,
-    page: 2,
     title: "10. Limitation of Liability",
     body: "MoneyPay shall not be liable for independent lending decisions, loan rejection or delays attributable to third-party lenders, provided MoneyPay has fulfilled its own contractual and legal obligations. Nothing in these Terms shall exclude liability for fraud, negligence, wilful misconduct, breach of applicable law or any liability that cannot legally be excluded.",
   },
   {
     id: 11,
-    page: 2,
     title: "11. Governing Law and Jurisdiction",
     body: "These Terms and Conditions shall be governed by the laws of India. Subject to applicable consumer protection laws and statutory jurisdiction, disputes shall be subject to the jurisdiction of competent courts in Bengaluru, Karnataka.",
   },
   {
     id: 12,
-    page: 2,
     title: "12. Applicant Acceptance and Declaration",
     important: true,
     intro: "By proceeding with the application and making payment, the applicant confirms and declares that:",

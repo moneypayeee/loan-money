@@ -87,7 +87,7 @@ export function validateApplication(v: ApplicationInput, today = new Date()): Er
   if (!/^[A-Za-z0-9_]{6,40}$/.test(v.transaction_id.trim())) e.transaction_id = "Enter the 6–40 character UTR or payment ID.";
   if (!v.files.proof) e.proof = "Upload your payment screenshot.";
   if (!UPI_RE.test(v.refund_upi_id.trim())) e.refund_upi_id = "Enter a valid UPI ID, e.g. name@okaxis.";
-  if (!v.payment_consent) e.payment_consent = "Please confirm you have read the fee terms.";
+  if (!v.payment_consent) e.payment_consent = "Please agree to the Terms & Conditions and acknowledge the Privacy Policy.";
   return e;
 }
 

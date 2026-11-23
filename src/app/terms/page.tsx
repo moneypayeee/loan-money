@@ -6,7 +6,6 @@ import {
   Building2,
   Check,
   Clock3,
-  Download,
   Landmark,
   MessageSquareWarning,
   ShieldCheck,
@@ -16,7 +15,6 @@ import { SectionHead } from "@/components/section-head";
 import { DisclosureCard } from "@/components/lender-disclosure";
 import { ApplicationFee, GrievanceContact, LenderName } from "@/components/settings-text";
 import { TermsDocumentViewer } from "@/components/terms-document-viewer";
-import { TERMS_PDF_PATH } from "@/config/terms-data";
 
 export const metadata: Metadata = {
   title: "Terms & Conditions — MoneyPayee",
@@ -30,7 +28,7 @@ export default function TermsPage() {
       <PageHeader
         eyebrow="Legal & Terms"
         title="Terms & Conditions."
-        intro="Official Loan Application Assistance Agreement. Read through our 12 clauses below or download the signed legal PDF document."
+        intro="Official Loan Application Assistance Agreement. Read through our 12 clauses below."
       />
 
       {/* ======================= DOCUMENT VIEWER & CLAUSES ======================= */}
@@ -60,7 +58,6 @@ export default function TermsPage() {
           />
         </div>
 
-        {/* Interactive Document Viewer with Page 1 / Page 2 and Up/Down Arrows */}
         <TermsDocumentViewer />
 
         {/* ===================== GRIEVANCE & LENDER DETAILS ===================== */}
@@ -99,28 +96,7 @@ export default function TermsPage() {
           <div className="space-y-4 lg:sticky lg:top-32">
             <DisclosureCard />
             <div className="card p-6 border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center gap-3">
-                <span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-700">
-                  <Download size={20} />
-                </span>
-                <div>
-                  <p className="font-bold text-ink">Download PDF Copy</p>
-                  <p className="text-xs text-muted">Original 2-page document</p>
-                </div>
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-muted">
-                Save an official PDF copy of the Loan Application Assistance Terms &amp; Conditions for your records.
-              </p>
-              <a
-                href={TERMS_PDF_PATH}
-                download="MoneyPay_Terms_and_Conditions.pdf"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-gold btn-sm mt-4 w-full justify-center font-bold"
-              >
-                <Download size={14} /> Download PDF
-              </a>
-              <Link href="/apply" className="btn btn-outline btn-sm mt-2 w-full justify-center">
+              <Link href="/apply" className="btn btn-outline btn-sm w-full justify-center">
                 Start Loan Application <ArrowRight size={14} />
               </Link>
             </div>

@@ -39,6 +39,7 @@ export const PAYMENT: PaymentSettings = {
   payee_name: "MoneyPayee",
   upi_id: "",
   fee: 299,
+  emi_annual_rate: 18,
   // QR image file inside public/.
   qr_path: "payment-qr.svg",
 };
@@ -46,9 +47,8 @@ export const PAYMENT: PaymentSettings = {
 /**
  * EMI estimate shown on the application form (step 1) as people choose an amount.
  * Only an illustration: the lender sets the real rate, tenure and charges in the
- * Key Fact Statement. Set annual_rate to the lender's typical rate.
+ * Key Fact Statement.
  */
 export const LOAN_ESTIMATE = {
-  annual_rate: 18, // % a year, reducing balance
   tenures: [3, 6, 9, 12, 18, 24], // months
 };

@@ -514,10 +514,6 @@ function VerificationReceipt() {
   );
 }
 
-/** Compact phone shown beside the headline below the lg breakpoint. Everything is
- *  sized in em, so changing the root font-size per breakpoint scales the whole mockup. */
-
-/** Hero photo: framed to match the dark + gold theme, with floating status & reward cards. */
 function HeroBanner({ onReferClick }: { onReferClick?: () => void }) {
   return (
     <figure className="relative mx-auto w-full max-w-[640px] animate-rise [animation-delay:150ms] xl:mr-0">
@@ -534,10 +530,9 @@ function HeroBanner({ onReferClick }: { onReferClick?: () => void }) {
         />
         <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-white/20" aria-hidden />
 
-        {/* Floating status card 1: Application approved */}
-        <div className="absolute left-3 top-3 animate-float sm:left-6 sm:top-6">
-          <div className="flex items-center gap-2.5 rounded-2xl border border-white/15 bg-[#07100a]/85 px-3 py-2.5 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-3">
-            <span className="grid size-7 place-items-center rounded-full bg-ok text-paper sm:size-9">
+        <div className="absolute left-3 top-3 max-w-[50%] sm:left-6 sm:top-6 xl:max-w-none xl:animate-float">
+          <div className="flex h-full items-center gap-2 rounded-2xl border border-white/15 bg-[#07100a]/85 px-3 py-2.5 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-3">
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ok text-paper sm:size-9">
               <Check size={15} strokeWidth={3} />
             </span>
             <span>
@@ -547,14 +542,13 @@ function HeroBanner({ onReferClick }: { onReferClick?: () => void }) {
           </div>
         </div>
 
-        {/* Floating status card 2: Refer & Earn Rewards */}
-        <div className="absolute right-3 top-3 animate-float [animation-delay:1.2s] sm:right-6 sm:top-6">
+        <div className="absolute bottom-3 left-3 max-w-[50%] sm:bottom-6 sm:left-6 xl:bottom-auto xl:left-auto xl:right-6 xl:top-6 xl:max-w-none xl:animate-float xl:[animation-delay:1.2s]">
           <button
             type="button"
             onClick={onReferClick}
-            className="group flex items-center gap-2 rounded-2xl border border-gold/30 bg-[#07100a]/90 px-2.5 py-2 text-left shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl transition hover:border-gold/60 hover:scale-[1.03] active:scale-[0.98] sm:gap-3 sm:px-4 sm:py-3 cursor-pointer"
+            className="group flex h-full w-full items-center gap-2 rounded-2xl border border-gold/30 bg-[#07100a]/90 px-2.5 py-2 text-left shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl transition hover:border-gold/60 hover:scale-[1.03] active:scale-[0.98] sm:gap-3 sm:px-4 sm:py-3 cursor-pointer"
           >
-            <span className="grid size-7 place-items-center rounded-full bg-gradient-to-br from-gold to-yellow-500 text-stone-950 font-bold sm:size-9 shadow-[0_0_15px_rgba(234,179,8,0.4)]">
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-gold to-yellow-500 text-stone-950 font-bold sm:size-9 shadow-[0_0_15px_rgba(234,179,8,0.4)]">
               <Gift size={15} />
             </span>
             <span>
@@ -566,16 +560,16 @@ function HeroBanner({ onReferClick }: { onReferClick?: () => void }) {
           </button>
         </div>
 
-        {/* Floating status card 3: Instant loan assurance */}
-        <div className="absolute bottom-3 left-3 sm:bottom-6 sm:left-6">
-          <div className="rounded-2xl border border-white/15 bg-[#07100a]/85 px-3 py-2.5 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:px-4 sm:py-3">
-            <p className="flex items-center gap-1.5 text-[0.7rem] font-semibold text-ink sm:text-sm">
-              <Clock3 size={14} className="text-gold" /> Instant loan in 48 hours
-            </p>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[0.62rem] text-muted sm:text-xs">
-              <ShieldCheck size={12} className="text-gold" /> 100% digital verification &amp; fast review
-            </p>
-          </div>
+      </div>
+
+      <div className="relative mt-3 xl:absolute xl:bottom-6 xl:left-6 xl:mt-0">
+        <div className="rounded-2xl border border-white/15 bg-[#07100a]/85 px-3 py-2.5 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:px-4 sm:py-3">
+          <p className="flex items-center gap-1.5 text-[0.7rem] font-semibold text-ink sm:text-sm">
+            <Clock3 size={14} className="text-gold" /> Instant loan in 48 hours
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-[0.62rem] text-muted sm:text-xs">
+            <ShieldCheck size={12} className="text-gold" /> 100% digital verification &amp; fast review
+          </p>
         </div>
       </div>
     </figure>

@@ -32,7 +32,7 @@ export async function GET() {
       const db = createClient(url, key, { auth: { persistSession: false } });
       const { data, error } = await db
         .from("payment_settings")
-        .select("payee_name, upi_id, fee, qr_path, updated_at")
+        .select("*")
         .eq("id", 1)
         .maybeSingle();
 
@@ -44,6 +44,7 @@ export async function GET() {
           payee_name,
           upi_id,
           fee: typeof data.fee === "number" ? data.fee : (data.fee !== null && data.fee !== undefined ? Number(data.fee) : PAYMENT.fee),
+          emi_annual_rate: Number(data.emi_annual_rate ?? PAYMENT.emi_annual_rate),
           qr_path,
           qr_url: resolveQrUrl(qr_path, url),
           updated_at: data.updated_at,
@@ -91,15 +92,25 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { payee_name, upi_id, qr_base64, fee } = body;
+    const { payee_name, upi_id, qr_base64, fee, emi_annual_rate } = body;
+    const updates: Record<string, string | number> = { updated_at: new Date().toISOString() };
 
-    const { data: current } = await db
-      .from("payment_settings")
-      .select("qr_path, payee_name, upi_id, fee")
-      .eq("id", 1)
-      .maybeSingle();
-
-    let qr_path = current?.qr_path || PAYMENT.qr_path;
+    if (payee_name) updates.payee_name = String(payee_name).trim();
+    if (upi_id) updates.upi_id = String(upi_id).trim().toLowerCase();
+    if (fee !== undefined && fee !== null && fee !== "") {
+      const n = Number(fee);
+      if (!Number.isInteger(n) || n < 1 || n > 100000) {
+        return NextResponse.json({ error: "The fee must be a whole number of rupees between ₹1 and ₹1,00,000." }, { status: 400 });
+      }
+      updates.fee = n;
+    }
+    if (emi_annual_rate !== undefined) {
+      if (typeof emi_annual_rate !== "number" || !Number.isFinite(emi_annual_rate)
+          || emi_annual_rate < 0 || emi_annual_rate > 60 || Number(emi_annual_rate.toFixed(2)) !== emi_annual_rate) {
+        return NextResponse.json({ error: "Enter an annual EMI estimate rate from 0% to 60% with up to two decimal places." }, { status: 400 });
+      }
+      updates.emi_annual_rate = emi_annual_rate;
+    }
 
     if (qr_base64) {
       const match = String(qr_base64).match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/i);
@@ -119,45 +130,31 @@ export async function POST(req: Request) {
           { status: 500 }
         );
       }
-      qr_path = objectPath;
+      updates.qr_path = objectPath;
     }
 
-    const updatedPayee = String(payee_name || current?.payee_name || PAYMENT.payee_name).trim();
-    const updatedUpi = String(upi_id || current?.upi_id || PAYMENT.upi_id).trim().toLowerCase();
-    let updatedFee = current?.fee ?? PAYMENT.fee;
-    if (fee !== undefined && fee !== null && fee !== "") {
-      const n = Number(fee);
-      if (!Number.isInteger(n) || n < 1 || n > 100000) {
-        return NextResponse.json({ error: "The fee must be a whole number of rupees between ₹1 and ₹1,00,000." }, { status: 400 });
-      }
-      updatedFee = n;
-    }
-    const updatedAt = new Date().toISOString();
-
-    const { error: updateErr } = await db
+    const { data: saved, error: updateErr } = await db
       .from("payment_settings")
-      .update({
-        payee_name: updatedPayee,
-        upi_id: updatedUpi,
-        fee: updatedFee,
-        qr_path,
-        updated_at: updatedAt,
-      })
-      .eq("id", 1);
+      .update(updates)
+      .eq("id", 1)
+      .select("*")
+      .single();
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    const qr_path = saved.qr_path || PAYMENT.qr_path;
     return NextResponse.json({
       success: true,
       payment: {
-        payee_name: updatedPayee,
-        upi_id: updatedUpi,
-        fee: updatedFee,
+        payee_name: saved.payee_name || PAYMENT.payee_name,
+        upi_id: saved.upi_id || PAYMENT.upi_id,
+        fee: Number(saved.fee ?? PAYMENT.fee),
+        emi_annual_rate: Number(saved.emi_annual_rate ?? PAYMENT.emi_annual_rate),
         qr_path,
         qr_url: resolveQrUrl(qr_path, url),
-        updated_at: updatedAt,
+        updated_at: saved.updated_at,
       },
     });
   } catch (error: unknown) {

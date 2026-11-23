@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
   ArrowLeft,
@@ -28,7 +29,7 @@ import { EMAIL_RE, normalizePhone, phoneToAuthEmail } from "@/lib/phone-auth";
 import { CATEGORIES, FEE, IDENTITY_TYPES } from "@/lib/types";
 import { STEP_FIELDS, firstStepWithError, validateApplication, type ApplicationInput, type Errors } from "@/lib/application-validation";
 import { FileDrop, IMAGE_TYPES } from "../file-drop";
-import { LOAN_ESTIMATE } from "@/config/site";
+import { LOAN_ESTIMATE, PAYMENT } from "@/config/site";
 import { emi } from "@/lib/loan-math";
 import { FieldError, Notice } from "../ui";
 import { checkApplicantExists, checkReferralCode, normalizeReferralCode } from "@/lib/referral-system";
@@ -462,7 +463,8 @@ export function ApplicationWizard({
     }
   }
 
-  const estimate = validAmount(Number(v.requested_amount)) ? emi(Number(v.requested_amount), LOAN_ESTIMATE.annual_rate, tenure) : 0;
+  const annualRate = payment?.emi_annual_rate ?? PAYMENT.emi_annual_rate;
+  const estimate = validAmount(Number(v.requested_amount)) ? emi(Number(v.requested_amount), annualRate, tenure) : 0;
   const f = (k: string) => ({ id: k, "aria-invalid": Boolean(errors[k]), "aria-describedby": errors[k] ? k + "-error" : undefined });
 
   return (
@@ -632,7 +634,7 @@ export function ApplicationWizard({
                   ))}
                 </div>
                 <p className="hint">Between ₹1,000 and ₹5,00,000. The lender sets the final amount.</p>
-                <EmiEstimate amount={Number(v.requested_amount)} tenure={tenure} setTenure={setTenure} />
+                <EmiEstimate rate={annualRate} amount={Number(v.requested_amount)} tenure={tenure} setTenure={setTenure} />
               </div>
 
               <div className="grid gap-4 border-t hairline pt-5 sm:grid-cols-6">
@@ -792,6 +794,20 @@ export function ApplicationWizard({
             <section className="space-y-5 animate-fade">
               <Header title={`Pay the ₹${FEE} application fee`} sub="Choose your preferred payment method below." />
 
+              <Check2 id="payment_consent" checked={v.payment_consent} onChange={(c) => set("payment_consent", c)} error={errors.payment_consent}>
+                <strong className="mb-1 block text-ink">Terms &amp; Conditions (required)</strong>
+                I agree to the{" "}
+                <Link href="/terms" target="_blank" rel="noopener" title="Opens in a new tab" className="font-semibold text-gold underline underline-offset-4">
+                  Terms &amp; Conditions
+                </Link>
+                {" "}and acknowledge the{" "}
+                <Link href="/privacy" target="_blank" rel="noopener" title="Opens in a new tab" className="font-semibold text-gold underline underline-offset-4">
+                  Privacy Policy
+                </Link>
+                . I understand the ₹{fee} application fee covers document and payment verification and is non-refundable.
+                The lender decides the final loan terms.
+              </Check2>
+
               {/* Payment Method Switcher */}
               <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1.5">
                 <button
@@ -946,11 +962,6 @@ export function ApplicationWizard({
                   />
                 </>
               )}
-
-              <Check2 id="payment_consent" checked={v.payment_consent} onChange={(c) => set("payment_consent", c)} error={errors.payment_consent}>
-                I understand the ₹{fee} application fee covers verification of my documents and payment and is non-refundable. Approval
-                sends my application to the lender, who decides the final loan terms.
-              </Check2>
             </section>
           )}
 
@@ -1022,7 +1033,7 @@ export function ApplicationWizard({
           {estimate > 0 && (
             <p className="mt-3 rounded-xl border border-gold/20 bg-gold-soft/50 px-3 py-2 text-sm">
               About <strong>{rupees(estimate)}</strong>/month for {tenure} months
-              <span className="block text-[0.7rem] text-muted">Estimate at {LOAN_ESTIMATE.annual_rate}% a year</span>
+              <span className="block text-[0.7rem] text-muted">Estimate at {annualRate}% a year</span>
             </p>
           )}
           <ul className="mt-5 space-y-3 border-t hairline pt-5 text-sm">
@@ -1093,7 +1104,7 @@ function Check2({ id, checked, onChange, error, children }: { id: string; checke
           error ? "border-bad/40 bg-bad-soft/60" : checked ? "border-gold/35 bg-gold-soft/70" : "border-white/[0.08] bg-white/[0.02]"
         }`}
       >
-        <input id={id} type="checkbox" className="mt-1" checked={checked} onChange={(e) => onChange(e.target.checked)} aria-invalid={Boolean(error)} />
+        <input id={id} type="checkbox" required className="mt-1" checked={checked} onChange={(e) => onChange(e.target.checked)} aria-invalid={Boolean(error)} aria-describedby={error ? id + "-error" : undefined} />
         <span>{children}</span>
       </label>
       <FieldError id={id} message={error} />
@@ -1113,8 +1124,7 @@ function Summary({ k, v, strong = false, mono = false }: { k: string; v: string;
 const validAmount = (n: number) => Number.isInteger(n) && n >= 1000 && n <= 500000;
 
 /** EMI for each tenure at the illustrative rate, updating as the amount changes. */
-function EmiEstimate({ amount, tenure, setTenure }: { amount: number; tenure: number; setTenure: (t: number) => void }) {
-  const rate = LOAN_ESTIMATE.annual_rate;
+function EmiEstimate({ amount, rate, tenure, setTenure }: { amount: number; rate: number; tenure: number; setTenure: (t: number) => void }) {
   if (!validAmount(amount)) return null;
   const rows = LOAN_ESTIMATE.tenures.map((m) => {
     const e = emi(amount, rate, m);
