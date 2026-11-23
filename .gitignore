@@ -9,3 +9,4 @@ node_modules/
 # local secret copies
 envfile
 /env file
+/email
