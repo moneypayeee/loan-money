@@ -6,6 +6,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AdminPage() {
-  return <AdminConsole />;
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return <><AdminConsole />{children}</>;
 }

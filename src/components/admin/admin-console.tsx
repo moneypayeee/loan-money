@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { ADMIN_SECTIONS, adminSectionHref, type AdminSection } from "@/lib/admin-sections";
 import {
   BarChart3,
   ExternalLink,
@@ -46,7 +47,7 @@ import { buildCustomers, buildLoanRows, type Customer, type LoanRow } from "./po
 import { ApplicationDrawer } from "./application-drawer";
 import { demoAccess, demoApps, demoLoans, demoPayments, demoStats } from "./demo-data";
 
-export type Tab = "overview" | "customers" | "applications" | "kyc" | "loans" | "fees" | "referrals" | "activity" | "reports" | "team" | "settings";
+export type Tab = AdminSection;
 
 export type AdminCtx = {
   apps: Application[];
@@ -132,7 +133,16 @@ export function AdminConsole() {
 }
 
 function Console({ email, demo = false }: { email: string; demo?: boolean }) {
-  const [tab, setTab] = useState<Tab>("overview");
+  const router = useRouter();
+  const pathname = usePathname();
+  const tab = ADMIN_SECTIONS.find((section) => adminSectionHref(section) === pathname) ?? "overview";
+
+  function navigate(section: Tab) {
+    const href = adminSectionHref(section);
+    if (href !== pathname) router.push(href, { scroll: false });
+    window.scrollTo({ top: 0 });
+  }
+
   const [filter, setFilter] = useState("pending");
   const [apps, setApps] = useState<Application[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -234,12 +244,11 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
     reload,
     open: setOpenId,
     go: (t, f) => {
-      setTab(t);
+      navigate(t);
       if (t === "customers") setCustomerId(null);
       if (t === "kyc") setKycId(null);
       if (f) setFilter(f);
       setNavOpen(false);
-      window.scrollTo({ top: 0 });
     },
     toast: (tone, text) => setMsg({ tone, text }),
     demo,
@@ -258,15 +267,13 @@ function Console({ email, demo = false }: { email: string; demo?: boolean }) {
     openCustomer: (id) => {
       if (openId && !demo) void reload(); // the drawer may have changed loan data
       setCustomerId(id);
-      setTab("customers");
+      navigate("customers");
       setOpenId(null);
-      window.scrollTo({ top: 0 });
     },
     openKyc: (id) => {
       setKycId(id);
-      setTab("kyc");
+      navigate("kyc");
       setOpenId(null);
-      window.scrollTo({ top: 0 });
     },
     recordPayment,
     syncDemoLoan: (appId, loan, list) => {
@@ -435,9 +442,12 @@ function AdminSidebar({
   const Item = ({ t, label, icon: Icon, badge, gold = false }: { t: Tab; label: string; icon: typeof LayoutDashboard; badge?: number; gold?: boolean }) => {
     const on = tab === t;
     return (
-      <button
-        type="button"
-        onClick={() => go(t)}
+      <Link
+        href={adminSectionHref(t)}
+        onNavigate={(event) => {
+          event.preventDefault();
+          go(t);
+        }}
         aria-current={on ? "page" : undefined}
         className={`group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-[0.88rem] font-semibold transition ${
           on ? "bg-gradient-to-r from-gold/[0.13] via-gold/[0.04] to-transparent text-ink shadow-[inset_2px_0_0_var(--color-gold)]" : "text-ink-2 hover:bg-white/[0.04] hover:text-ink"
@@ -454,7 +464,7 @@ function AdminSidebar({
         {!!badge && (
           <span className={`ml-auto min-w-6 rounded-full px-1.5 py-0.5 text-center text-[0.68rem] font-bold ${gold ? "bg-gold text-[#1a1406]" : "bg-white/10 text-ink-2"}`}>{badge}</span>
         )}
-      </button>
+      </Link>
     );
   };
 
