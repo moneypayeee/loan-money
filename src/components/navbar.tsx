@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, ChevronRight, FileText, HelpCircle, Home, ListOrdered, Menu, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, FileText, HelpCircle, Home, ListOrdered, Menu, ShieldCheck, X } from "lucide-react";
 import { Logo } from "./ui";
 import { DisclosureBar } from "./lender-disclosure";
 import { useSettings } from "@/lib/settings-context";
@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/how-it-works", label: "How it works", icon: ListOrdered },
   { href: "/questions", label: "FAQs", icon: HelpCircle },
   { href: "/terms", label: "Terms & Conditions", icon: FileText },
+  { href: "/privacy", label: "Privacy Policy", icon: ShieldCheck },
 ];
 
 export function Navbar() {

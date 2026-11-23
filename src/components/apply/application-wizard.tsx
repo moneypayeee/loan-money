@@ -29,14 +29,14 @@ import { EMAIL_RE, normalizePhone, phoneToAuthEmail } from "@/lib/phone-auth";
 import { CATEGORIES, FEE, IDENTITY_TYPES } from "@/lib/types";
 import { STEP_FIELDS, firstStepWithError, validateApplication, type ApplicationInput, type Errors } from "@/lib/application-validation";
 import { FileDrop, IMAGE_TYPES } from "../file-drop";
-import { LOAN_ESTIMATE, PAYMENT } from "@/config/site";
+import { LOAN_ESTIMATE, PAYMENT, SITE } from "@/config/site";
 import { emi } from "@/lib/loan-math";
 import { FieldError, Notice } from "../ui";
 import { checkApplicantExists, checkReferralCode, normalizeReferralCode } from "@/lib/referral-system";
 
 const REF_KEY = "mp-referral-code";
-const DUP_PHONE = "An application with this mobile number already exists. Please contact us at support@moneypayee.in for help.";
-const DUP_EMAIL = "An application with this email ID already exists. Please contact us at support@moneypayee.in for help.";
+const DUP_PHONE = `An application with this mobile number already exists. Please contact us at ${SITE.support_email} for help.`;
+const DUP_EMAIL = `An application with this email ID already exists. Please contact us at ${SITE.support_email} for help.`;
 
 const STEPS = [
   { title: "About you", icon: UserRound },

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { SITE } from "@/config/site";
 import { PageHeader } from "@/components/page-header";
 import { ApplicationFee, GrievanceContact } from "@/components/settings-text";
 
@@ -41,7 +42,7 @@ const GROUPS: { title: string; items: [string, React.ReactNode][] }[] = [
 export default function QuestionsPage() {
   return (
     <main className="-mb-16">
-      <PageHeader eyebrow="FAQs" title="Questions, answered plainly." intro="If something isn't covered here, email us at support@moneypayee.in." />
+      <PageHeader eyebrow="FAQs" title="Questions, answered plainly." intro={<>If you have another question, email <a className="font-semibold underline underline-offset-4" href={`mailto:${SITE.support_email}`}>{SITE.support_email}</a>.</>} />
       <section className="theme-light bg-white text-ink">
         <div className="shell py-12 sm:py-14">
         <div className="mx-auto max-w-4xl space-y-10">

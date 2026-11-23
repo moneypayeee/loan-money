@@ -55,7 +55,7 @@ export function Footer() {
           title="Legal"
           links={[
             ["/terms", "Terms & Conditions"],
-            ["/privacy", "Privacy policy"],
+            ["/privacy", "Privacy Policy"],
             ["/terms#grievance", "Grievance redressal"],
           ]}
         />

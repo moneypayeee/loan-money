@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/page-header";
 import { SectionHead } from "@/components/section-head";
 import { DisclosureCard } from "@/components/lender-disclosure";
 import { ApplicationFee, GrievanceContact, LenderName } from "@/components/settings-text";
+import { SITE } from "@/config/site";
 import { TermsDocumentViewer } from "@/components/terms-document-viewer";
 
 export const metadata: Metadata = {
@@ -69,7 +70,7 @@ export default function TermsPage() {
             </p>
             <ol className="mt-8 space-y-4">
               {[
-                [MessageSquareWarning, "Raise your inquiry or complaint", "Email support@moneypayee.in with your application reference code and transaction UTR."],
+                [MessageSquareWarning, "Raise your inquiry or complaint", <>Email <a className="font-semibold underline underline-offset-4" href={`mailto:${SITE.support_email}`}>{SITE.support_email}</a> with your application reference code and transaction UTR.</>],
                 [Clock3, "Acknowledged in 2 working days", "Our compliance team will acknowledge receipt of your notice within 48 hours."],
                 [Check, "Resolved within 30 days", "We strive to investigate and close every inquiry within 30 days."],
                 [Landmark, "RBI Integrated Ombudsman", "For matters involving RBI-regulated lending partners, contact the RBI Integrated Ombudsman at cms.rbi.org.in."],
@@ -85,7 +86,7 @@ export default function TermsPage() {
                     </span>
                     <div className="pt-1.5">
                       <p className="font-semibold text-ink">{t as string}</p>
-                      <p className="mt-0.5 text-[0.92rem] leading-relaxed text-muted">{d as string}</p>
+                      <p className="mt-0.5 text-[0.92rem] leading-relaxed text-muted">{d as React.ReactNode}</p>
                     </div>
                   </li>
                 );
