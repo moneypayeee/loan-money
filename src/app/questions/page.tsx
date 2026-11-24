@@ -15,7 +15,7 @@ const GROUPS: { title: string; items: [string, React.ReactNode][] }[] = [
     title: "The fee",
     items: [
       ["What is the application fee for?", "It covers the manual review of your documents and the check that your payment reached our account. It is not interest, it is not part of your loan, and it is the only payment we ask for."],
-      ["Is the application fee refundable?", <>No. The <ApplicationFee /> fee covers operational and verification costs incurred to manually check your documents and payment, and is non-refundable.</>],
+      ["Is the application fee refundable?", <>No. The <ApplicationFee /> fee covers operational and verification costs incurred to manually check your documents and payment.</>],
       ["What if my payment can't be found?", <>If the UTR you entered doesn&rsquo;t match a <ApplicationFee /> payment in our account, the application cannot proceed. If you were charged, contact <GrievanceContact /> with your UTR and screenshot.</>],
       ["Someone asked me for another fee to release my loan.", <>That isn&rsquo;t us. We never ask for any payment other than the <ApplicationFee /> application fee, and never for your UPI PIN or OTP. Don&rsquo;t pay. Report it to <GrievanceContact /> and the cybercrime helpline 1930.</>],
     ],

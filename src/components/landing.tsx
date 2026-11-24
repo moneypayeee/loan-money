@@ -366,7 +366,7 @@ export function Landing() {
         <div className="mx-auto mt-10 max-w-3xl divide-y divide-line rounded-2xl border border-line bg-paper/60 p-2 sm:p-5 backdrop-blur">
           {[
             ["Does approval mean I get a loan?", "Approval means your documents and payment are verified and your application is sent to the lender. The lender decides the final amount, interest rate and tenure, and shows you a Key Fact Statement before you sign."],
-            ["Is the application fee refundable?", `The ₹${fee} fee covers operational and verification costs incurred to manually check your documents and payment, and is non-refundable.`],
+            ["Is the application fee refundable?", `The ₹${fee} fee covers operational and verification costs incurred to manually check your documents and payment.`],
             ["Who sees my documents?", "Only you and our authorised reviewers. Files sit in private storage, and review links expire after five minutes."],
             ["Can I apply again?", "Yes, once your current application has a decision. One application can be under review at a time."],
           ].map(([q, a]) => (

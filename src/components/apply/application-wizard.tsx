@@ -804,7 +804,7 @@ export function ApplicationWizard({
                 <Link href="/privacy" target="_blank" rel="noopener" title="Opens in a new tab" className="font-semibold text-gold underline underline-offset-4">
                   Privacy Policy
                 </Link>
-                . I understand the ₹{fee} application fee covers document and payment verification and is non-refundable.
+                . I understand the ₹{fee} application fee covers document and payment verification.
                 The lender decides the final loan terms.
               </Check2>
 
